@@ -1,1 +1,21 @@
-remember to write an installation guide.
+1. Modify the first variables in generate_handlers.sh to tell the script
+   where the PHP sources can be found.
+
+2. $ ./generate_handlers.sh
+
+3. $ php generate_handler_lookup.php < /path/to/php5/Zend/zend_vm_execute.h
+
+4. $ phpize
+
+5. $ ./configure --enable-phpllvm
+
+6. $ make && sudo make install
+
+7. Copy "module_template.bc" to your current working directory before you run:
+
+    $ php -dextension=phpllvm.so -dphpllvm.active=1 your_script.php
+
+    After each execution, you can examine the generated LLVM in the current
+    working directory with:
+
+    $ llvm-dis -o - previous_execution.bc
