@@ -185,7 +185,7 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 	/* populate each op_code block */
 	for (int i = 0; i < op_array->last; i++) {
 		zend_op* op = op_array->opcodes + i;
-		char* handler_name = phpllvm_get_function_name(opcode_handler_decode(op));
+		const char* handler_name = phpllvm_get_function_name(opcode_handler_decode(op));
 		Function* handler = mod->getFunction(handler_name);
 
 		builder.SetInsertPoint(op_blocks[i]);

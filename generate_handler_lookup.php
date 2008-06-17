@@ -67,13 +67,12 @@ fwrite($fp2, "/*
 fwrite($fp2, "#ifndef PHPLLVM_FUNCTION_LOOKUP_H\n");
 fwrite($fp2, "#define PHPLLVM_FUNCTION_LOOKUP_H\n\n");
 
-fwrite($fp2, "char* phpllvm_get_function_name(int i) {\n");
+fwrite($fp2, "static const char* handler_names[] = {\n    \"");
+fwrite($fp2, implode("\",\n    \"", $names));
+fwrite($fp2, "\"\n};\n\n");
 
-foreach ($names as $j => $name)
-  fwrite($fp2, "  if (i == $j) return \"$name\";\n");
+fwrite($fp2, "const char* phpllvm_get_function_name(int i) { return handler_names[i]; }\n\n");
 
-fwrite($fp2, "  return \"\";\n");
-fwrite($fp2, "}\n\n");
 fwrite($fp2, "#endif\n");
 
 fclose($fp2);
