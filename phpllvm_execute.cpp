@@ -51,17 +51,17 @@ static ModuleProvider* provider;
 static PassManager* opt_pass_manager;
 static FunctionPassManager* opt_fpass_manager;
 
-static void optimize_module(TSRMLS_D) {
+static void optimize_module(TSRMLS_DC) {
 	// Run optimizations on the entire module
 	opt_pass_manager->run(*module);
 }
 
-static void optimize_function(Function* function, TSRMLS_D) {
+static void optimize_function(Function* function TSRMLS_DC) {
 	// Run optimizations on the function
 	opt_fpass_manager->run(*function);
 }
 
-void phpllvm::save_module(const char* filename, TSRMLS_D) {
+void phpllvm::save_module(const char* filename TSRMLS_DC) {
 #ifndef NDEBUG
 	verifyModule(*module, PrintMessageAction);
 #endif
@@ -75,7 +75,7 @@ void phpllvm::save_module(const char* filename, TSRMLS_D) {
 	fb.close();
 }
 
-void phpllvm::init_jit_engine(const char* filename, TSRMLS_D) {
+void phpllvm::init_jit_engine(const char* filename TSRMLS_DC) {
 
 	if (!filename)
 		filename = "module_template.bc";
@@ -114,7 +114,7 @@ void phpllvm::init_jit_engine(const char* filename, TSRMLS_D) {
 	opt_fpass_manager->add(createCFGSimplificationPass());
 }
 
-void phpllvm::destroy_jit_engine(TSRMLS_D) {
+void phpllvm::destroy_jit_engine(TSRMLS_DC) {
 	delete engine;
 	engine = NULL;
 	provider = NULL;
@@ -125,12 +125,12 @@ void phpllvm::destroy_jit_engine(TSRMLS_D) {
 	opt_fpass_manager = NULL;
 }
 
-void phpllvm::override_executor(TSRMLS_D) {
+void phpllvm::override_executor(TSRMLS_DC) {
 	old_execute = zend_execute;
     zend_execute = phpllvm::execute;
 }
 
-void phpllvm::restore_executor(TSRMLS_D) {
+void phpllvm::restore_executor(TSRMLS_DC) {
 	if (old_execute)
 		zend_execute = old_execute;
 }
@@ -172,8 +172,10 @@ void phpllvm::execute(zend_op_array *op_array TSRMLS_DC) {
 	val.PointerVal = op_array;
 	args.push_back(val);
 
+#ifdef ZTS
 	val.PointerVal = TSRMLS_C;
 	args.push_back(val);
+#endif
 
 	engine->runFunction(function, args);
 }

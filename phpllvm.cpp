@@ -92,7 +92,7 @@ PHP_MINIT_FUNCTION(phpllvm)
 	// 	init_jit_engine(TEMP_FILE, TSRMLS_C);
 	// 	fclose(temp);
 	// } else
-	init_jit_engine(NULL, TSRMLS_C);
+	init_jit_engine(NULL TSRMLS_CC);
 
 	return SUCCESS;
 }
@@ -103,10 +103,10 @@ PHP_MSHUTDOWN_FUNCTION(phpllvm)
 	UNREGISTER_INI_ENTRIES();
 
 	if (INI_BOOL("phpllvm.active"))
-		restore_executor(TSRMLS_C);
+		restore_executor(TSRMLS_CC);
 
-	save_module(TEMP_FILE, TSRMLS_C);
-	destroy_jit_engine(TSRMLS_C);
+	save_module(TEMP_FILE TSRMLS_CC);
+	destroy_jit_engine(TSRMLS_CC);
 
 	return SUCCESS;
 }
