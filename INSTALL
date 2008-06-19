@@ -2,13 +2,9 @@
 
 2. $ ./configure --enable-phpllvm --with-php-source=/path/to/php/sources/
 
-3. $ make module_template
+3. $ make && sudo make install
 
-4. $ make handler_lookup
-
-5. $ make && sudo make install
-
-6. Copy "module_template.bc" to your current working directory before you run:
+4. Copy "module_template.bc" to your current working directory before you run:
 
     $ php -dextension=phpllvm.so -dphpllvm.active=1 your_script.php
 
