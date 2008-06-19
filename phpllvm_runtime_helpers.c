@@ -51,7 +51,9 @@ zend_execute_data *phpllvm_create_execute_data(zend_op_array *op_array TSRMLS_DC
 void phpllvm_init_executor(zend_execute_data *execute_data TSRMLS_DC) {
 	int i;
 
+#if ZEND_MODULE_API_NO < 20071006 /* PHP < 5.3. TODO: remove this later */
 	EX(original_in_execution) = EG(in_execution);
+#endif
 	EX(symbol_table) = EG(active_symbol_table);
 	EX(prev_execute_data) = EG(current_execute_data);
 	EG(current_execute_data) = execute_data;
@@ -63,12 +65,28 @@ void phpllvm_init_executor(zend_execute_data *execute_data TSRMLS_DC) {
 		EX(opline) = EX(op_array)->opcodes;
 	}
 
+#if ZEND_MODULE_API_NO < 20071006 /* PHP < 5.3. TODO: remove this later */
 	if (EX(op_array)->uses_this && EG(This)) {
 		Z_ADDREF_P(EG(This)); /* For $this pointer */
 		if (zend_hash_add(EG(active_symbol_table), "this", sizeof("this"), &EG(This), sizeof(zval *), NULL)==FAILURE) {
 			Z_DELREF_P(EG(This));
 		}
 	}
+#else
+	zend_op_array *op_array = EX(op_array);
+
+	if (op_array->this_var != -1 && EG(This)) {
+ 		Z_ADDREF_P(EG(This)); /* For $this pointer */
+		if (!EG(active_symbol_table)) {
+			EX(CVs)[op_array->this_var] = (zval**)EX(CVs) + (op_array->last_var + op_array->this_var);
+			*EX(CVs)[op_array->this_var] = EG(This);
+		} else {
+			if (zend_hash_add(EG(active_symbol_table), "this", sizeof("this"), &EG(This), sizeof(zval *), (void**)&EX(CVs)[op_array->this_var])==FAILURE) {
+				Z_DELREF_P(EG(This));
+			}
+		}
+	}
+#endif
 
 	EG(opline_ptr) = &EX(opline);
 
