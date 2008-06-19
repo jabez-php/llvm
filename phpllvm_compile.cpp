@@ -102,7 +102,7 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 	arg_types.push_back(create_execute_data->getFunctionType()->getParamType(0));
 	arg_types.push_back(create_execute_data->getFunctionType()->getParamType(1));
 	FunctionType *process_oparray_type = FunctionType::get(Type::VoidTy, arg_types, false);
-    Function *process_oparray = Function::Create(process_oparray_type,
+	Function *process_oparray = Function::Create(process_oparray_type,
 												Function::ExternalLinkage,
 												fn_name,
 												mod);
