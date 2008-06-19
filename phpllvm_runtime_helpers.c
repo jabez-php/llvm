@@ -22,7 +22,7 @@
 #undef EX
 #define EX(element) execute_data->element
 
-int phpllvm_executor_exception_exists(TSRMLS_D) {
+int phpllvm_executor_exception_exists(TSRMLS_DC) {
 	if (EG(exception))
 		fprintf(stderr, "Zend engine exception exists.\n");
 	return EG(exception) != 0;

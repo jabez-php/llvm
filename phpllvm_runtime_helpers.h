@@ -25,7 +25,7 @@ extern "C" {
 
 #include "php.h"
 
-int phpllvm_executor_exception_exists(TSRMLS_D);
+int phpllvm_executor_exception_exists(TSRMLS_DC);
 
 zend_execute_data *phpllvm_create_execute_data(zend_op_array *op_array TSRMLS_DC);
 
