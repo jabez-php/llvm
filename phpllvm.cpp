@@ -35,27 +35,6 @@ ZEND_DECLARE_MODULE_GLOBALS(phpllvm)
 
 #define TEMP_FILE "previous_execution.bc"
 
-static function_entry phpllvm_functions[] = {
-	{NULL, NULL, NULL}
-};
-
-zend_module_entry phpllvm_module_entry = {
-#if ZEND_MODULE_API_NO >= 20010901
-	STANDARD_MODULE_HEADER,
-#endif
-	PHP_PHPLLVM_EXTNAME,
-	phpllvm_functions,
-	PHP_MINIT(phpllvm),
-	PHP_MSHUTDOWN(phpllvm),
-	PHP_RINIT(phpllvm),
-	NULL,
-	NULL,
-#if ZEND_MODULE_API_NO >= 20010901
-	PHP_PHPLLVM_VERSION,
-#endif
-	STANDARD_MODULE_PROPERTIES
-};
-
 PHP_INI_BEGIN()
 	PHP_INI_ENTRY("phpllvm.active", "1", PHP_INI_SYSTEM, NULL)
 PHP_INI_END()
@@ -68,7 +47,7 @@ static void phpllvm_init_globals(zend_phpllvm_globals *phpllvm_globals)
 {
 }
 
-PHP_RINIT_FUNCTION(phpllvm)
+static PHP_RINIT_FUNCTION(phpllvm)
 {
 	if (INI_BOOL("phpllvm.active"))
 		override_executor(TSRMLS_C);
@@ -76,12 +55,7 @@ PHP_RINIT_FUNCTION(phpllvm)
 	return SUCCESS;
 }
 
-PHP_RSHUTDOWN_FUNCTION(phpllvm)
-{
-	return SUCCESS;
-}
-
-PHP_MINIT_FUNCTION(phpllvm)
+static PHP_MINIT_FUNCTION(phpllvm)
 {
 	ZEND_INIT_MODULE_GLOBALS(phpllvm, phpllvm_init_globals, NULL);
 
@@ -98,7 +72,7 @@ PHP_MINIT_FUNCTION(phpllvm)
 }
 
 
-PHP_MSHUTDOWN_FUNCTION(phpllvm)
+static PHP_MSHUTDOWN_FUNCTION(phpllvm)
 {
 	UNREGISTER_INI_ENTRIES();
 
@@ -110,3 +84,20 @@ PHP_MSHUTDOWN_FUNCTION(phpllvm)
 
 	return SUCCESS;
 }
+
+static function_entry phpllvm_functions[] = {
+	{NULL, NULL, NULL}
+};
+
+zend_module_entry phpllvm_module_entry = {
+	STANDARD_MODULE_HEADER,
+	PHP_PHPLLVM_EXTNAME,
+	phpllvm_functions,
+	PHP_MINIT(phpllvm),
+	PHP_MSHUTDOWN(phpllvm),
+	PHP_RINIT(phpllvm),
+	NULL,
+	NULL,
+	PHP_PHPLLVM_VERSION,
+	STANDARD_MODULE_PROPERTIES
+};

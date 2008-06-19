@@ -36,15 +36,6 @@ ZEND_END_MODULE_GLOBALS(phpllvm)
 #define PHP_PHPLLVM_VERSION "0.1"
 #define PHP_PHPLLVM_EXTNAME "phpllvm"
 
-PHP_MINIT_FUNCTION(phpllvm);
-PHP_MSHUTDOWN_FUNCTION(phpllvm);
-PHP_RINIT_FUNCTION(phpllvm);
-PHP_RSHUTDOWN_FUNCTION(phpllvm);
-
-ZEND_BEGIN_MODULE_GLOBALS(vld)
-	int active;
-ZEND_END_MODULE_GLOBALS(vld) 
-
 extern zend_module_entry phpllvm_module_entry;
 #define phpext_phpllvm_ptr &phpllvm_module_entry
 
