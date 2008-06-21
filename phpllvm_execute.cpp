@@ -19,7 +19,6 @@
 #include "phpllvm_execute.h"
 #include "phpllvm_compile.h"
 
-
 #include <llvm/PassManager.h>
 #include <llvm/CallingConv.h>
 #include <llvm/Support/IRBuilder.h>
@@ -48,13 +47,7 @@ zend_execute_t *old_execute;
 static ExecutionEngine* engine;
 static Module* module;
 static ModuleProvider* provider;
-static PassManager* opt_pass_manager;
 static FunctionPassManager* opt_fpass_manager;
-
-static void optimize_module(TSRMLS_DC) {
-	// Run optimizations on the entire module
-	opt_pass_manager->run(*module);
-}
 
 static void optimize_function(Function* function TSRMLS_DC) {
 	// Run optimizations on the function
@@ -95,15 +88,11 @@ void phpllvm::init_jit_engine(const char* filename TSRMLS_DC) {
 
 	/* Set up the optimization passes */
 
-	// Function inlining has to be done on the Module level
-	opt_pass_manager = new PassManager();
-	opt_pass_manager->add(new TargetData(*engine->getTargetData()));
-	// Inline function calls.
-	// opt_pass_manager->add(createFunctionInliningPass());
-
 	// We ca do other optimizations per Function as they're generated
 	opt_fpass_manager = new FunctionPassManager(provider);
 	opt_fpass_manager->add(new TargetData(*engine->getTargetData()));
+	// Inline function calls.
+	// opt_fpass_manager->add(createFunctionInliningPass());
 	// Do simple "peephole" optimizations and bit-twiddling optzns.
 	opt_fpass_manager->add(createInstructionCombiningPass());
 	// Reassociate expressions.
@@ -114,42 +103,39 @@ void phpllvm::init_jit_engine(const char* filename TSRMLS_DC) {
 	opt_fpass_manager->add(createCFGSimplificationPass());
 }
 
-void phpllvm::destroy_jit_engine(TSRMLS_DC) {
+void phpllvm::destroy_jit_engine(TSRMLS_D) {
 	delete engine;
 	engine = NULL;
 	provider = NULL;
 
-	delete opt_pass_manager;
-	opt_pass_manager = NULL;
 	delete opt_fpass_manager;
 	opt_fpass_manager = NULL;
 }
 
-void phpllvm::override_executor(TSRMLS_DC) {
+void phpllvm::override_executor(TSRMLS_D) {
 	old_execute = zend_execute;
-    zend_execute = phpllvm::execute;
+	zend_execute = phpllvm::execute;
 }
 
-void phpllvm::restore_executor(TSRMLS_DC) {
+void phpllvm::restore_executor(TSRMLS_D) {
 	if (old_execute)
 		zend_execute = old_execute;
 }
 
 void phpllvm::execute(zend_op_array *op_array TSRMLS_DC) {
-	Function* function;
-	char* name;
 
 	/* Get/create the compiled function */
 
+	char* name;
 	asprintf(&name, "%s__c__%s__f__%s",
 		(op_array->filename)? op_array->filename : "",
 		(op_array->scope)? op_array->scope->name : "",
 		(op_array->function_name)? op_array->function_name : "");
 
-	function = module->getFunction(name);
+	Function* function = module->getFunction(name);
 
 	if (!function) {
-		function = compile_op_array(op_array, name, module TSRMLS_CC);
+		function = compile_op_array(op_array, name, module, engine TSRMLS_CC);
 
 		if (!function) {
 			/* Note that we can't even call old_execute because the template includes globals
@@ -158,7 +144,6 @@ void phpllvm::execute(zend_op_array *op_array TSRMLS_DC) {
 			zend_error_noreturn(E_ERROR, "Couldn't compile LLVM Function for %s.\n", name);
 		}
 
-		optimize_module(TSRMLS_C);
 		optimize_function(function TSRMLS_CC);
 	}
 

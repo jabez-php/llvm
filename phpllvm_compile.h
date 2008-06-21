@@ -31,7 +31,7 @@ using namespace llvm;
 
 namespace phpllvm {
 
-	Function* compile_op_array(zend_op_array *op_array, char* fn_name, Module* mod TSRMLS_DC);
+	Function* compile_op_array(zend_op_array *op_array, char* fn_name, Module* mod, ExecutionEngine* engine TSRMLS_DC);
 
 }
 #endif

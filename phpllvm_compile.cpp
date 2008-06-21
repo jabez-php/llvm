@@ -17,12 +17,14 @@
 */
 
 #include "phpllvm_compile.h"
+#include "phpllvm_execute.h"
 #include "phpllvm_handler_lookup.h"
 
 #include <llvm/Module.h>
 #include <llvm/Function.h>
 #include <llvm/CallingConv.h>
 #include <llvm/Support/IRBuilder.h>
+#include <llvm/ExecutionEngine/GenericValue.h>
 
 using namespace llvm;
 using namespace phpllvm;
@@ -85,7 +87,7 @@ static int opcode_handler_decode(zend_op *opline)
 	return (opline->opcode * 25) + (apc_vm_decode[opline->op1.op_type] * 5) + apc_vm_decode[opline->op2.op_type];
 }
 
-Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Module* mod TSRMLS_DC) {
+Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Module* mod, ExecutionEngine* engine TSRMLS_DC) {
 
 	// fprintf(stderr, "compiling %s\n", fn_name);
 
@@ -95,9 +97,10 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 	Function* create_execute_data = mod->getFunction("phpllvm_create_execute_data");
 	Function* verify_opline = mod->getFunction("phpllvm_verify_opline");
 	Function* check_opline = mod->getFunction("phpllvm_check_opline");
+	Function* get_handler = mod->getFunction("phpllvm_get_opcode_handler");
 
 	/* Define the main function for the op_array (fn_name)
-		Takes zend_execute_data* and TSRMLS_D as arguments. */
+		Takes op_array* and TSRMLS_D as arguments. */
 	std::vector<const Type*> arg_types;
 	arg_types.push_back(create_execute_data->getFunctionType()->getParamType(0));
 	arg_types.push_back(create_execute_data->getFunctionType()->getParamType(1));
@@ -106,6 +109,13 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 												Function::ExternalLinkage,
 												fn_name,
 												mod);
+
+	/* The opcode handlers take zend_execute_data* and TSRMLS_D as arguments.
+	 	(Same as phpllvm_init_executor.) */
+	arg_types.clear();
+	arg_types.push_back(init_executor->getFunctionType()->getParamType(0));
+	arg_types.push_back(init_executor->getFunctionType()->getParamType(1));
+	FunctionType *handler_type = FunctionType::get(Type::Int32Ty, arg_types, false);
 
 	Function::arg_iterator args_i = process_oparray->arg_begin();
 	Value* op_array_ref = args_i++;
@@ -185,8 +195,6 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 	/* populate each op_code block */
 	for (int i = 0; i < op_array->last; i++) {
 		zend_op* op = op_array->opcodes + i;
-		const char* handler_name = phpllvm_get_function_name(opcode_handler_decode(op));
-		Function* handler = mod->getFunction(handler_name);
 
 		builder.SetInsertPoint(op_blocks[i]);
 
@@ -196,12 +204,29 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 			continue;
 		}
 
-		// Always execute the op_code using the Zend handler,
-		// even for JMPs, to keep CVs etc. in sync.
-		Value* result = builder.CreateCall2(handler,
-											execute_data,
-											tsrlm_ref,
-											"execute_result");
+		/* Need to force the compilation of the handler because otherwise phpllvm_get_handler only
+			returns the address of the call to the JIT compilation hook, which getGlobalValueAtAddress
+			doesn't recognize as the Function. */
+		// TODO: Do this without phpllvm_get_function_name(), preferably from within phpllvm_get_handler
+		engine->clearAllGlobalMappings();
+		const char* handler_name = phpllvm_get_function_name(opcode_handler_decode(op));
+		engine->getPointerToGlobal(mod->getFunction(handler_name));
+		/* phpllvm_get_handler will return the old address unless recompiled. */
+		engine->recompileAndRelinkFunction(get_handler);
+
+		/* Use the reverse lookup from an actual memory address (handler_raw)
+			to the corresponding llvm::Function */
+		std::vector<GenericValue> args;
+		args.push_back(PTOGV(op));
+		void* handler_raw = GVTOP(engine->runFunction(get_handler, args));
+		Function* handler = (Function*) engine->getGlobalValueAtAddress(handler_raw);
+
+		/* Always execute the op_code using the Zend handler,
+ 			even for JMPs, to keep the engine in sync. */
+		Value *handler_args[] = { execute_data, tsrlm_ref };
+	    CallInst* result = CallInst::Create(handler, handler_args, handler_args+2, "execute_result", op_blocks[i]);
+		result->setCallingConv(handler->getCallingConv()); // PHP 5.3 uses fastcc
+
 
 		// determine where to jump
 		if (op->opcode == ZEND_JMP) {
@@ -272,6 +297,11 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 
 	efree(pre_op_blocks);
 	efree(op_blocks);
+
+	/* engine->clearAllGlobalMappings() clears zend_execute* as well... */
+	std::vector<GenericValue> args;
+	args.push_back(PTOGV((void*) phpllvm::execute));
+	engine->runFunction(mod->getFunction("phpllvm_set_executor"), args);
 
 	return process_oparray;
 }

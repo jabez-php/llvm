@@ -16,8 +16,8 @@
    +----------------------------------------------------------------------+
 */
 
-#ifndef LLVMCAHCE_EXECUTE_DATA_H
-#define LLVMCAHCE_EXECUTE_DATA_H
+#ifndef LLVMCAHCE_RUNTIME_HELPERS_H
+#define LLVMCAHCE_RUNTIME_HELPERS_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,7 +25,9 @@ extern "C" {
 
 #include "php.h"
 
-int phpllvm_executor_exception_exists(TSRMLS_DC);
+typedef void (zend_execute_t)(zend_op_array *op_array TSRMLS_DC);
+
+int phpllvm_executor_exception_exists(TSRMLS_D);
 
 zend_execute_data *phpllvm_create_execute_data(zend_op_array *op_array TSRMLS_DC);
 
@@ -34,6 +36,10 @@ void phpllvm_init_executor(zend_execute_data *execute_data TSRMLS_DC);
 void phpllvm_verify_opline(zend_execute_data *execute_data, int i TSRMLS_DC);
 
 int phpllvm_check_opline(zend_execute_data *execute_data, int i TSRMLS_DC);
+
+void phpllvm_set_executor(zend_execute_t new_execute);
+
+opcode_handler_t phpllvm_get_opcode_handler(zend_op* op);
 
 #ifdef __cplusplus
 }

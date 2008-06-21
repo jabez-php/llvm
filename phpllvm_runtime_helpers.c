@@ -22,7 +22,7 @@
 #undef EX
 #define EX(element) execute_data->element
 
-int phpllvm_executor_exception_exists(TSRMLS_DC) {
+int phpllvm_executor_exception_exists(TSRMLS_D) {
 	if (EG(exception))
 		fprintf(stderr, "Zend engine exception exists.\n");
 	return EG(exception) != 0;
@@ -109,4 +109,15 @@ void phpllvm_verify_opline(zend_execute_data *execute_data, int i TSRMLS_DC) {
 	if (!phpllvm_check_opline(execute_data, i TSRMLS_CC))
 		fprintf(stderr, "Zend engine has opline == %u, while we think it's %u\n", execute_data->opline - execute_data->op_array->opcodes, i);
 #endif
+}
+
+void phpllvm_set_executor(zend_execute_t new_execute) {
+	zend_execute = new_execute;
+}
+
+opcode_handler_t phpllvm_get_opcode_handler(zend_op* op) {
+	zend_op op_copy = *op;
+	zend_init_opcodes_handlers();
+	zend_vm_set_opcode_handler(&op_copy);
+	return op_copy.handler;
 }

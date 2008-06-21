@@ -77,10 +77,10 @@ static PHP_MSHUTDOWN_FUNCTION(phpllvm)
 	UNREGISTER_INI_ENTRIES();
 
 	if (INI_BOOL("phpllvm.active"))
-		restore_executor(TSRMLS_CC);
+		restore_executor(TSRMLS_C);
 
 	save_module(TEMP_FILE TSRMLS_CC);
-	destroy_jit_engine(TSRMLS_CC);
+	destroy_jit_engine(TSRMLS_C);
 
 	return SUCCESS;
 }

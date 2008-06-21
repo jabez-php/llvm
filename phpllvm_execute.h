@@ -27,11 +27,11 @@ namespace phpllvm {
 
 	void init_jit_engine(const char* filename TSRMLS_DC);
 
-	void destroy_jit_engine(TSRMLS_DC);
+	void destroy_jit_engine(TSRMLS_D);
 
-	void override_executor(TSRMLS_DC);
+	void override_executor(TSRMLS_D);
 
-	void restore_executor(TSRMLS_DC);
+	void restore_executor(TSRMLS_D);
 
 	void execute(zend_op_array *op_array TSRMLS_DC);
 
