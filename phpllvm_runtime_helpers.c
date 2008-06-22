@@ -20,94 +20,107 @@
 #include <zend_execute.h>
 
 #undef EX
-#define EX(element) execute_data->element
+#define EX(element) stack_data->execute_data->element
+
+struct _execute_stack_data {
+	zend_op_array *op_array;
+	zend_execute_data *execute_data;
+	zend_bool nested;
+	zend_bool original_in_execution;
+};
 
 int phpllvm_executor_exception_exists(TSRMLS_D) {
+#ifndef NDEBUG
 	if (EG(exception))
 		fprintf(stderr, "Zend engine exception exists.\n");
+#endif
 	return EG(exception) != 0;
 }
 
-zend_execute_data *phpllvm_create_execute_data(zend_op_array *op_array TSRMLS_DC) {
+execute_stack_data *phpllvm_init_executor(zend_op_array *op_array TSRMLS_DC) {
+	execute_stack_data *stack_data = emalloc(sizeof(execute_stack_data));
+	stack_data->execute_data = NULL;
+	stack_data->op_array = op_array;
+	stack_data->nested = 0;
+	stack_data->original_in_execution = EG(in_execution);
+
+	EG(in_execution) = 1;
+
+	return stack_data;
+}
+
+void phpllvm_create_execute_data(execute_stack_data *stack_data TSRMLS_DC) {
 	/* has to be allocated on the Zend VM stack because the ZEND_RETURN handler
  		frees arguments to the function by decreasing the Zend VM stack pointer. */
-	zend_execute_data *execute_data = (zend_execute_data *)zend_vm_stack_alloc(
+	stack_data->execute_data = (zend_execute_data *)zend_vm_stack_alloc(
 		sizeof(zend_execute_data) +
-		sizeof(zval**) * op_array->last_var +
-		sizeof(temp_variable) * op_array->T TSRMLS_CC);
+		sizeof(zval**) * stack_data->op_array->last_var * (EG(active_symbol_table) ? 1 : 2) +
+		sizeof(temp_variable) * stack_data->op_array->T TSRMLS_CC);
 
-	EX(CVs) = (zval***)((char*)execute_data + sizeof(zend_execute_data));
-	memset(EX(CVs), 0, sizeof(zval**) * op_array->last_var);
-	EX(Ts) = (temp_variable *)(EX(CVs) + op_array->last_var);
+	EX(CVs) = (zval***)((char*)stack_data->execute_data + sizeof(zend_execute_data));
+	memset(EX(CVs), 0, sizeof(zval**) * stack_data->op_array->last_var);
+	EX(Ts) = (temp_variable *)(EX(CVs) + stack_data->op_array->last_var * (EG(active_symbol_table) ? 1 : 2));
 	EX(fbc) = NULL;
 	EX(called_scope) = NULL;
 	EX(object) = NULL;
 	EX(old_error_reporting) = NULL;
-	EX(op_array) = op_array;
-	
-	return execute_data;
-}
-
-void phpllvm_init_executor(zend_execute_data *execute_data TSRMLS_DC) {
-	int i;
-
-#if ZEND_MODULE_API_NO < 20071006 /* PHP < 5.3. TODO: remove this later */
-	EX(original_in_execution) = EG(in_execution);
-#endif
+	EX(op_array) = stack_data->op_array;
 	EX(symbol_table) = EG(active_symbol_table);
 	EX(prev_execute_data) = EG(current_execute_data);
-	EG(current_execute_data) = execute_data;
+	EG(current_execute_data) = stack_data->execute_data;
+	EX(nested) = stack_data->nested;
+	stack_data->nested = 1;
 
-	EG(in_execution) = 1;
-	if (EX(op_array)->start_op) {
-		EX(opline) = EX(op_array)->start_op;
+	if (stack_data->op_array->start_op) {
+		stack_data->execute_data->opline = stack_data->op_array->start_op;
 	} else {
-		EX(opline) = EX(op_array)->opcodes;
+		stack_data->execute_data->opline = stack_data->op_array->opcodes;
 	}
 
-#if ZEND_MODULE_API_NO < 20071006 /* PHP < 5.3. TODO: remove this later */
-	if (EX(op_array)->uses_this && EG(This)) {
-		Z_ADDREF_P(EG(This)); /* For $this pointer */
-		if (zend_hash_add(EG(active_symbol_table), "this", sizeof("this"), &EG(This), sizeof(zval *), NULL)==FAILURE) {
-			Z_DELREF_P(EG(This));
-		}
-	}
-#else
-	zend_op_array *op_array = EX(op_array);
-
-	if (op_array->this_var != -1 && EG(This)) {
+	if (stack_data->op_array->this_var != -1 && EG(This)) {
  		Z_ADDREF_P(EG(This)); /* For $this pointer */
 		if (!EG(active_symbol_table)) {
-			EX(CVs)[op_array->this_var] = (zval**)EX(CVs) + (op_array->last_var + op_array->this_var);
-			*EX(CVs)[op_array->this_var] = EG(This);
+			EX(CVs)[stack_data->op_array->this_var] = (zval**)EX(CVs) + (stack_data->op_array->last_var + stack_data->op_array->this_var);
+			*EX(CVs)[stack_data->op_array->this_var] = EG(This);
 		} else {
-			if (zend_hash_add(EG(active_symbol_table), "this", sizeof("this"), &EG(This), sizeof(zval *), (void**)&EX(CVs)[op_array->this_var])==FAILURE) {
+			if (zend_hash_add(EG(active_symbol_table), "this", sizeof("this"), &EG(This), sizeof(zval *), (void**)&EX(CVs)[stack_data->op_array->this_var])==FAILURE) {
 				Z_DELREF_P(EG(This));
 			}
 		}
 	}
-#endif
 
 	EG(opline_ptr) = &EX(opline);
 
-	EX(function_state).function = (zend_function *) EX(op_array);
+	EX(function_state).function = (zend_function *) stack_data->op_array;
 	EX(function_state).arguments = NULL;
 }
 
-#define EX_T(offset) (*(temp_variable *)((char *) EX(Ts) + offset))
-
-int phpllvm_check_opline(zend_execute_data *execute_data, int i TSRMLS_DC) {
-	if (execute_data->opline == execute_data->op_array->opcodes + i)
-		return 1;
-	else
-		return 0;
+zend_execute_data *phpllvm_get_execute_data(execute_stack_data *stack_data) {
+	return stack_data->execute_data;
 }
 
-void phpllvm_verify_opline(zend_execute_data *execute_data, int i TSRMLS_DC) {
+void phpllvm_pre_vm_return(execute_stack_data *stack_data TSRMLS_DC) {
+	EG(in_execution) = stack_data->original_in_execution;
+	efree(stack_data);
+}
+
+void phpllvm_pre_vm_enter(execute_stack_data *stack_data TSRMLS_DC) {
+	stack_data->op_array = EG(active_op_array);
+}
+
+void phpllvm_pre_vm_leave(execute_stack_data *stack_data TSRMLS_DC) {
+	stack_data->execute_data = EG(current_execute_data);
+}
+
+int phpllvm_get_opline_number(execute_stack_data *stack_data) {
+	return stack_data->execute_data->opline - stack_data->execute_data->op_array->opcodes;
+}
+
+void phpllvm_verify_opline(execute_stack_data *stack_data, int i) {
 #ifndef NDEBUG
 	// fprintf(stderr, "veryifying zend engine has opline == %u...\n", i);
-	if (!phpllvm_check_opline(execute_data, i TSRMLS_CC))
-		fprintf(stderr, "Zend engine has opline == %u, while we think it's %u\n", execute_data->opline - execute_data->op_array->opcodes, i);
+	if (stack_data->execute_data->opline != stack_data->execute_data->op_array->opcodes + i)
+		fprintf(stderr, "Zend engine has opline == %u, while we think it's %u\n", stack_data->execute_data->opline - stack_data->execute_data->op_array->opcodes, i);
 #endif
 }
 

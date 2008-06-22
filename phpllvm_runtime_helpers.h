@@ -27,15 +27,28 @@ extern "C" {
 
 typedef void (zend_execute_t)(zend_op_array *op_array TSRMLS_DC);
 
+/* A helper type used to store the data usually stored on the zend_execute function's
+ 	stack. It's just more convinient to wrap it up in one struct. */
+typedef struct _execute_stack_data execute_stack_data;
+
+
 int phpllvm_executor_exception_exists(TSRMLS_D);
 
-zend_execute_data *phpllvm_create_execute_data(zend_op_array *op_array TSRMLS_DC);
+execute_stack_data *phpllvm_init_executor(zend_op_array *op_array TSRMLS_DC);
 
-void phpllvm_init_executor(zend_execute_data *execute_data TSRMLS_DC);
+void phpllvm_create_execute_data(execute_stack_data *stack_data TSRMLS_DC);
 
-void phpllvm_verify_opline(zend_execute_data *execute_data, int i TSRMLS_DC);
+zend_execute_data *phpllvm_get_execute_data(execute_stack_data *stack_data);
 
-int phpllvm_check_opline(zend_execute_data *execute_data, int i TSRMLS_DC);
+void phpllvm_pre_vm_return(execute_stack_data *stack_data TSRMLS_DC);
+
+void phpllvm_pre_vm_enter(execute_stack_data *stack_data TSRMLS_DC);
+
+void phpllvm_pre_vm_leave(execute_stack_data *stack_data TSRMLS_DC);
+
+void phpllvm_verify_opline(execute_stack_data *stack_data, int i);
+
+int phpllvm_get_opline_number(execute_stack_data *stack_data);
 
 void phpllvm_set_executor(zend_execute_t new_execute);
 

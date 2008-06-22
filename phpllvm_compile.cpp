@@ -95,15 +95,23 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 	Function* executor_exception_exists = mod->getFunction("phpllvm_executor_exception_exists");
 	Function* init_executor = mod->getFunction("phpllvm_init_executor");
 	Function* create_execute_data = mod->getFunction("phpllvm_create_execute_data");
+	Function* pre_vm_return = mod->getFunction("phpllvm_pre_vm_return");
+	Function* pre_vm_enter = mod->getFunction("phpllvm_pre_vm_enter");
+	Function* pre_vm_leave = mod->getFunction("phpllvm_pre_vm_leave");
+	Function* get_execute_data = mod->getFunction("phpllvm_get_execute_data");
 	Function* verify_opline = mod->getFunction("phpllvm_verify_opline");
-	Function* check_opline = mod->getFunction("phpllvm_check_opline");
+	Function* get_opline_number = mod->getFunction("phpllvm_get_opline_number");
 	Function* get_handler = mod->getFunction("phpllvm_get_opcode_handler");
+
+	const Type* op_array_type = init_executor->getFunctionType()->getParamType(0);
+	const Type* execute_data_type = get_execute_data->getFunctionType()->getReturnType();
+	const Type* tsrmls_type = init_executor->getFunctionType()->getParamType(1);
 
 	/* Define the main function for the op_array (fn_name)
 		Takes op_array* and TSRMLS_D as arguments. */
 	std::vector<const Type*> arg_types;
-	arg_types.push_back(create_execute_data->getFunctionType()->getParamType(0));
-	arg_types.push_back(create_execute_data->getFunctionType()->getParamType(1));
+	arg_types.push_back(op_array_type);
+	arg_types.push_back(tsrmls_type);
 	FunctionType *process_oparray_type = FunctionType::get(Type::VoidTy, arg_types, false);
 	Function *process_oparray = Function::Create(process_oparray_type,
 												Function::ExternalLinkage,
@@ -113,8 +121,8 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 	/* The opcode handlers take zend_execute_data* and TSRMLS_D as arguments.
 	 	(Same as phpllvm_init_executor.) */
 	arg_types.clear();
-	arg_types.push_back(init_executor->getFunctionType()->getParamType(0));
-	arg_types.push_back(init_executor->getFunctionType()->getParamType(1));
+	arg_types.push_back(execute_data_type);
+	arg_types.push_back(tsrmls_type);
 	FunctionType *handler_type = FunctionType::get(Type::Int32Ty, arg_types, false);
 
 	Function::arg_iterator args_i = process_oparray->arg_begin();
@@ -122,10 +130,15 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 	Value* tsrlm_ref = args_i;
 
 	
-	/* Create the entry, (pre_)op_code, and return blocks */
+	/* Create the init, (pre_)op_code, and return blocks */
 	BasicBlock* entry = BasicBlock::Create("entry", process_oparray);
 	BasicBlock* init = BasicBlock::Create("init", process_oparray);
+	BasicBlock* vm_enter = BasicBlock::Create("vm_enter", process_oparray);
+	BasicBlock* pre_vm_return_block = BasicBlock::Create("pre_vm_return", process_oparray);
+	BasicBlock* pre_vm_enter_block = BasicBlock::Create("pre_vm_enter", process_oparray);
+	BasicBlock* pre_vm_leave_block = BasicBlock::Create("pre_vm_leave", process_oparray);
 	BasicBlock* ret = BasicBlock::Create("ret", process_oparray);
+	BasicBlock* reposition = BasicBlock::Create("reposition", process_oparray);
 
 	BasicBlock **pre_op_blocks, **op_blocks;
 	pre_op_blocks = (BasicBlock**) emalloc(
@@ -140,10 +153,10 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 	pre_op_blocks[op_array->last] = ret;
 	op_blocks[op_array->last] = ret;
 
-	/* Populate the entry block */
+	/* Populate the init block */
 	IRBuilder builder(entry);
 
-	// return if EG(exception) is set
+	/* Return straightaway if EG(exception) is set */
 	Value* exception_exists = builder.CreateCall(
 				executor_exception_exists,
 				tsrlm_ref,
@@ -154,22 +167,64 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 
 	builder.CreateCondBr(no_exception, init, ret);
 
-	// init execute data and the executor
+	/* Populate the init block */
 	builder.SetInsertPoint(init);
 
-	Value* execute_data = builder.CreateCall2(create_execute_data,
+	Value* stack_data = builder.CreateCall2(init_executor,
 				op_array_ref,
 				tsrlm_ref,
-				"execute_data");
+				"stack_data");
 
-	builder.CreateCall2(init_executor,
-				execute_data,
+	builder.CreateBr(vm_enter);
+
+	/* Populate the vm_enter block */
+	builder.SetInsertPoint(vm_enter);
+
+	builder.CreateCall2(create_execute_data,
+				stack_data,
 				tsrlm_ref);
 
 	int start = (op_array->start_op)? op_array->start_op - op_array->opcodes : 0;
 	builder.CreateBr(pre_op_blocks[start]);
 
-	/* Populate the final return block */
+	/* Populate the pre_vm_return block */
+	builder.SetInsertPoint(pre_vm_return_block);
+
+	builder.CreateCall2(pre_vm_return,
+				stack_data,
+				tsrlm_ref);
+
+	builder.CreateRetVoid();
+
+	/* Populate the pre_vm_enter block */
+	builder.SetInsertPoint(pre_vm_enter_block);
+
+	builder.CreateCall2(pre_vm_enter,
+				stack_data,
+				tsrlm_ref);
+
+	builder.CreateBr(vm_enter);
+
+	/* Populate the pre_vm_leave block */
+	builder.SetInsertPoint(pre_vm_leave_block);
+
+	builder.CreateCall2(pre_vm_leave,
+				stack_data,
+				tsrlm_ref);
+
+	builder.CreateBr(reposition);
+
+	/* Populate the reposition block used to return to the
+		correct instruction after ZEND_VM_LEAVE() */
+	builder.SetInsertPoint(reposition);
+
+	Value* current_op_number = builder.CreateCall(get_opline_number, stack_data, "current");
+
+	SwitchInst* reposition_switch = builder.CreateSwitch(current_op_number, ret, op_array->last);
+	for (int i = 0; i < op_array->last; i++)
+		reposition_switch->addCase(ConstantInt::get(Type::Int32Ty, i), pre_op_blocks[i]);
+
+	/* Populate the direct return block */
 	builder.SetInsertPoint(ret);
 
 	builder.CreateRetVoid();
@@ -181,10 +236,9 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 #ifndef NDEBUG
 		if (op_array->opcodes[i].opcode != ZEND_OP_DATA) {
 			// verify that execute_data->opline is set to i'th op_code
-			builder.CreateCall3(verify_opline,
-							execute_data,
-							ConstantInt::get(Type::Int32Ty, i),
-							tsrlm_ref);
+			builder.CreateCall2(verify_opline,
+							stack_data,
+							ConstantInt::get(Type::Int32Ty, i));
 		}
 #endif
 
@@ -223,6 +277,7 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 
 		/* Always execute the op_code using the Zend handler,
  			even for JMPs, to keep the engine in sync. */
+		Value* execute_data = builder.CreateCall(get_execute_data, stack_data, "execute_data");
 		Value *handler_args[] = { execute_data, tsrlm_ref };
 	    CallInst* result = CallInst::Create(handler, handler_args, handler_args+2, "execute_result", op_blocks[i]);
 		result->setCallingConv(handler->getCallingConv()); // PHP 5.3 uses fastcc
@@ -260,14 +315,11 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 			}
 
 			// check which line the engine wants to continue on (target1 or target2)
-			result = builder.CreateCall3(check_opline,
-								execute_data,
-								ConstantInt::get(Type::Int32Ty, target1),
-								tsrlm_ref,
-								"target1");
+			Value* current_op_number = builder.CreateCall(get_opline_number, stack_data, "current");
 
-			SwitchInst* switch_ref = builder.CreateSwitch(result, pre_op_blocks[target2], 1);
-			switch_ref->addCase(ConstantInt::get(Type::Int32Ty, 1), pre_op_blocks[target1]);
+			SwitchInst* switch_ref = builder.CreateSwitch(current_op_number, ret, 2);
+			switch_ref->addCase(ConstantInt::get(Type::Int32Ty, target1), pre_op_blocks[target1]);
+			switch_ref->addCase(ConstantInt::get(Type::Int32Ty, target2), pre_op_blocks[target2]);
 
 		} else if (op->opcode == ZEND_BRK) {
 
@@ -288,8 +340,10 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 		} else {
 
 			// proceed to next op_code unless the handler returned a non-zero result
-			Value* success = builder.CreateICmpEQ(result, ConstantInt::get(Type::Int32Ty, 0), "success");
-			builder.CreateCondBr(success, pre_op_blocks[i+1], ret);
+			SwitchInst* switch_ref = builder.CreateSwitch(result, pre_op_blocks[i+1], 3);
+			switch_ref->addCase(ConstantInt::get(Type::Int32Ty, 1), pre_vm_return_block);
+			switch_ref->addCase(ConstantInt::get(Type::Int32Ty, 2), pre_vm_enter_block);
+			switch_ref->addCase(ConstantInt::get(Type::Int32Ty, 3), pre_vm_leave_block);
 
 		}
 
