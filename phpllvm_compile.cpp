@@ -99,7 +99,6 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 	Function* pre_vm_enter = mod->getFunction("phpllvm_pre_vm_enter");
 	Function* pre_vm_leave = mod->getFunction("phpllvm_pre_vm_leave");
 	Function* get_execute_data = mod->getFunction("phpllvm_get_execute_data");
-	Function* verify_opline = mod->getFunction("phpllvm_verify_opline");
 	Function* get_opline_number = mod->getFunction("phpllvm_get_opline_number");
 	Function* get_handler = mod->getFunction("phpllvm_get_opcode_handler");
 
@@ -140,17 +139,13 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 	BasicBlock* ret = BasicBlock::Create("ret", process_oparray);
 	BasicBlock* reposition = BasicBlock::Create("reposition", process_oparray);
 
-	BasicBlock **pre_op_blocks, **op_blocks;
-	pre_op_blocks = (BasicBlock**) emalloc(
-		sizeof(BasicBlock*) * (op_array->last+1));
+	BasicBlock **op_blocks;
 	op_blocks = (BasicBlock**) emalloc(
 		sizeof(BasicBlock*) * (op_array->last+1));
 	for (int i = 0; i < op_array->last; i++) {
-		pre_op_blocks[i] = BasicBlock::Create("pre_op_block", process_oparray);
 		op_blocks[i] = BasicBlock::Create("op_block", process_oparray);
 	}
 	// avoid special cases in branching for the last opblock
-	pre_op_blocks[op_array->last] = ret;
 	op_blocks[op_array->last] = ret;
 
 	/* Populate the init block */
@@ -185,7 +180,7 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 				tsrlm_ref);
 
 	int start = (op_array->start_op)? op_array->start_op - op_array->opcodes : 0;
-	builder.CreateBr(pre_op_blocks[start]);
+	builder.CreateBr(op_blocks[start]);
 
 	/* Populate the pre_vm_return block */
 	builder.SetInsertPoint(pre_vm_return_block);
@@ -222,29 +217,26 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 
 	SwitchInst* reposition_switch = builder.CreateSwitch(current_op_number, ret, op_array->last);
 	for (int i = 0; i < op_array->last; i++)
-		reposition_switch->addCase(ConstantInt::get(Type::Int32Ty, i), pre_op_blocks[i]);
+		reposition_switch->addCase(ConstantInt::get(Type::Int32Ty, i), op_blocks[i]);
 
 	/* Populate the direct return block */
 	builder.SetInsertPoint(ret);
 
 	builder.CreateRetVoid();
 
-	/* populate each pre_op_code block */
-	for (int i = 0; i < op_array->last; i++) {
-		builder.SetInsertPoint(pre_op_blocks[i]);
-
 #ifndef NDEBUG
+	/* prefix each op_block with a check that verifies that we're on the right op. */
+	Function* verify_opline = mod->getFunction("phpllvm_verify_opline");
+	for (int i = 0; i < op_array->last; i++) {
+		builder.SetInsertPoint(op_blocks[i]);
 		if (op_array->opcodes[i].opcode != ZEND_OP_DATA) {
 			// verify that execute_data->opline is set to i'th op_code
 			builder.CreateCall2(verify_opline,
 							stack_data,
 							ConstantInt::get(Type::Int32Ty, i));
 		}
-#endif
-
-		// and jump to the corresponding block
-		builder.CreateBr(op_blocks[i]);
 	}
+#endif
 
 	/* populate each op_code block */
 	for (int i = 0; i < op_array->last; i++) {
@@ -254,7 +246,7 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 
 		if (op->opcode == ZEND_OP_DATA) {
 			// ZEND_OP_DATA only provides data for the previous opcode.
-			builder.CreateBr(pre_op_blocks[i + 1]);
+			builder.CreateBr(op_blocks[i + 1]);
 			continue;
 		}
 
@@ -286,8 +278,8 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 		// determine where to jump
 		if (op->opcode == ZEND_JMP) {
 
-			// jump to the corresponding pre_op_block
-			builder.CreateBr(pre_op_blocks[op->op1.u.jmp_addr - op_array->opcodes]);
+			// jump to the corresponding op_block
+			builder.CreateBr(op_blocks[op->op1.u.jmp_addr - op_array->opcodes]);
 
 		} else if (op->opcode == ZEND_JMPZ
 				|| op->opcode == ZEND_JMPNZ
@@ -318,29 +310,29 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 			Value* current_op_number = builder.CreateCall(get_opline_number, stack_data, "current");
 
 			SwitchInst* switch_ref = builder.CreateSwitch(current_op_number, ret, 2);
-			switch_ref->addCase(ConstantInt::get(Type::Int32Ty, target1), pre_op_blocks[target1]);
-			switch_ref->addCase(ConstantInt::get(Type::Int32Ty, target2), pre_op_blocks[target2]);
+			switch_ref->addCase(ConstantInt::get(Type::Int32Ty, target1), op_blocks[target1]);
+			switch_ref->addCase(ConstantInt::get(Type::Int32Ty, target2), op_blocks[target2]);
 
 		} else if (op->opcode == ZEND_BRK) {
 
 			zend_brk_cont_element *el = get_brk_cont_target(&op->op2.u.constant, op->op1.u.opline_num,
 			                   op_array, NULL TSRMLS_CC);
 
-			// jump to the end of the loop pre_op_block
-			builder.CreateBr(pre_op_blocks[el->brk]);
+			// jump to the end of the loop op_block
+			builder.CreateBr(op_blocks[el->brk]);
 
 		} else if (op->opcode == ZEND_CONT) {
 
 			zend_brk_cont_element *el = get_brk_cont_target(&op->op2.u.constant, op->op1.u.opline_num,
 			                   op_array, NULL TSRMLS_CC);
 
-			// jump to the beginning of the loop pre_op_block
-			builder.CreateBr(pre_op_blocks[el->cont]);
+			// jump to the beginning of the loop op_block
+			builder.CreateBr(op_blocks[el->cont]);
 
 		} else {
 
 			// proceed to next op_code unless the handler returned a non-zero result
-			SwitchInst* switch_ref = builder.CreateSwitch(result, pre_op_blocks[i+1], 3);
+			SwitchInst* switch_ref = builder.CreateSwitch(result, op_blocks[i+1], 3);
 			switch_ref->addCase(ConstantInt::get(Type::Int32Ty, 1), pre_vm_return_block);
 			switch_ref->addCase(ConstantInt::get(Type::Int32Ty, 2), pre_vm_enter_block);
 			switch_ref->addCase(ConstantInt::get(Type::Int32Ty, 3), pre_vm_leave_block);
@@ -349,7 +341,6 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 
 	}
 
-	efree(pre_op_blocks);
 	efree(op_blocks);
 
 	/* engine->clearAllGlobalMappings() clears zend_execute* as well... */
