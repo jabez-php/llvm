@@ -126,6 +126,17 @@ void phpllvm_verify_opline(execute_stack_data *stack_data, int i) {
 
 void phpllvm_set_executor(zend_execute_t new_execute) {
 	zend_execute = new_execute;
+
+	/* TODO: The function shouldn't be called "set_executor"
+		if these are also here but hopefully eventually we
+		won't need to do "engine->clearAllGlobalMappings();"
+		in compile.cpp so these can be removed. */
+	/* TODO: Furthermore we shouldn't assume that the default
+		compile functions are used but hopefully we'll override
+		them eventually anyway when we manage to "dump" the
+		op_array into LLVM IR. */
+	zend_compile_file = compile_file;
+	zend_compile_string = compile_string;
 }
 
 opcode_handler_t phpllvm_get_opcode_handler(zend_op* op) {

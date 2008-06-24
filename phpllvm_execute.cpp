@@ -127,12 +127,28 @@ void phpllvm::execute(zend_op_array *op_array TSRMLS_DC) {
 	/* Get/create the compiled function */
 
 	char* name;
-	asprintf(&name, "%s__c__%s__f__%s",
-		(op_array->filename)? op_array->filename : "",
-		(op_array->scope)? op_array->scope->name : "",
-		(op_array->function_name)? op_array->function_name : "");
+	bool cache;
+	Function* function;
 
-	Function* function = module->getFunction(name);
+	if (!op_array->filename || std::string("Command line code") == op_array->filename) {
+
+		/* Don't cache "Command line code". */
+		asprintf(&name, "command_line_code");
+		cache = false;
+		function = NULL;
+
+	} else {
+
+		asprintf(&name, "%s__c__%s__f__%s__s__%u",
+			(op_array->filename)? op_array->filename : "",
+			(op_array->scope)? op_array->scope->name : "",
+			(op_array->function_name)? op_array->function_name : "",
+			(op_array->start_op)? op_array->start_op - op_array->opcodes : 0);
+
+		cache = true;
+		function = module->getFunction(name);
+
+	}
 
 	if (!function) {
 		function = compile_op_array(op_array, name, module, engine TSRMLS_CC);
@@ -146,6 +162,7 @@ void phpllvm::execute(zend_op_array *op_array TSRMLS_DC) {
 
 		optimize_function(function TSRMLS_CC);
 	}
+	// else fprintf(stderr, "cache hit: %s\n", name);
 
 	// fprintf(stderr, "executing %s\n", name);
 	free(name);
@@ -163,4 +180,14 @@ void phpllvm::execute(zend_op_array *op_array TSRMLS_DC) {
 #endif
 
 	engine->runFunction(function, args);
+
+	if(!cache) {
+		engine->freeMachineCodeForFunction(function);
+
+		Function::use_iterator i, e;
+		for (i = function->use_begin(), e = function->use_end(); i != e; ++i)
+			dynamic_cast<Instruction*>(i.getUse().getUser())->eraseFromParent();
+
+		function->eraseFromParent();
+	}
 }
