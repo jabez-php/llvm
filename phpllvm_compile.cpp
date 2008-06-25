@@ -104,13 +104,16 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 
 	const Type* op_array_type = init_executor->getFunctionType()->getParamType(0);
 	const Type* execute_data_type = get_execute_data->getFunctionType()->getReturnType();
-	const Type* tsrmls_type = init_executor->getFunctionType()->getParamType(1);
 
 	/* Define the main function for the op_array (fn_name)
 		Takes op_array* and TSRMLS_D as arguments. */
 	std::vector<const Type*> arg_types;
 	arg_types.push_back(op_array_type);
+#ifdef ZTS
+	const Type* tsrmls_type = init_executor->getFunctionType()->getParamType(1);
 	arg_types.push_back(tsrmls_type);
+#endif
+
 	FunctionType *process_oparray_type = FunctionType::get(Type::VoidTy, arg_types, false);
 	Function *process_oparray = Function::Create(process_oparray_type,
 												Function::ExternalLinkage,
@@ -119,16 +122,16 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 
 	/* The opcode handlers take zend_execute_data* and TSRMLS_D as arguments.
 	 	(Same as phpllvm_init_executor.) */
-	arg_types.clear();
-	arg_types.push_back(execute_data_type);
-	arg_types.push_back(tsrmls_type);
+	arg_types[0] = execute_data_type;
+	// arg_types[1] already filled in
 	FunctionType *handler_type = FunctionType::get(Type::Int32Ty, arg_types, false);
 
 	Function::arg_iterator args_i = process_oparray->arg_begin();
-	Value* op_array_ref = args_i++;
-	Value* tsrlm_ref = args_i;
+	Value* op_array_ref = args_i;
+#ifdef ZTS
+	Value* tsrlm_ref = ++args_i;
+#endif
 
-	
 	/* Create the init, (pre_)op_code, and return blocks */
 	BasicBlock* entry = BasicBlock::Create("entry", process_oparray);
 	BasicBlock* init = BasicBlock::Create("init", process_oparray);
@@ -154,7 +157,9 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 	/* Return straightaway if EG(exception) is set */
 	Value* exception_exists = builder.CreateCall(
 				executor_exception_exists,
+#ifdef ZTS
 				tsrlm_ref,
+#endif
 				"exception_exists");
 	Value* no_exception = builder.CreateICmpEQ(exception_exists,
 												ConstantInt::get(Type::Int32Ty, 0),
@@ -165,19 +170,20 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 	/* Populate the init block */
 	builder.SetInsertPoint(init);
 
-	Value* stack_data = builder.CreateCall2(init_executor,
-				op_array_ref,
-				tsrlm_ref,
-				"stack_data");
+#ifdef ZTS
+# define CREATE_TSRMLS_CALL(f, arg) builder.CreateCall2(f, arg, tsrlm_ref)
+#else
+# define CREATE_TSRMLS_CALL(f, arg) builder.CreateCall(f, arg)
+#endif
+
+	Value* stack_data = CREATE_TSRMLS_CALL(init_executor, op_array_ref);
 
 	builder.CreateBr(vm_enter);
 
 	/* Populate the vm_enter block */
 	builder.SetInsertPoint(vm_enter);
 
-	builder.CreateCall2(create_execute_data,
-				stack_data,
-				tsrlm_ref);
+	CREATE_TSRMLS_CALL(create_execute_data, stack_data);
 
 	int start = (op_array->start_op)? op_array->start_op - op_array->opcodes : 0;
 	builder.CreateBr(op_blocks[start]);
@@ -185,27 +191,21 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 	/* Populate the pre_vm_return block */
 	builder.SetInsertPoint(pre_vm_return_block);
 
-	builder.CreateCall2(pre_vm_return,
-				stack_data,
-				tsrlm_ref);
+	CREATE_TSRMLS_CALL(pre_vm_return, stack_data);
 
 	builder.CreateRetVoid();
 
 	/* Populate the pre_vm_enter block */
 	builder.SetInsertPoint(pre_vm_enter_block);
 
-	builder.CreateCall2(pre_vm_enter,
-				stack_data,
-				tsrlm_ref);
+	CREATE_TSRMLS_CALL(pre_vm_enter, stack_data);
 
 	builder.CreateBr(vm_enter);
 
 	/* Populate the pre_vm_leave block */
 	builder.SetInsertPoint(pre_vm_leave_block);
 
-	builder.CreateCall2(pre_vm_leave,
-				stack_data,
-				tsrlm_ref);
+	CREATE_TSRMLS_CALL(pre_vm_leave, stack_data);
 
 	builder.CreateBr(reposition);
 
@@ -270,8 +270,13 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 		/* Always execute the op_code using the Zend handler,
  			even for JMPs, to keep the engine in sync. */
 		Value* execute_data = builder.CreateCall(get_execute_data, stack_data, "execute_data");
-		Value *handler_args[] = { execute_data, tsrlm_ref };
-	    CallInst* result = CallInst::Create(handler, handler_args, handler_args+2, "execute_result", op_blocks[i]);
+		Value *handler_args[] = {
+			execute_data,
+#ifdef ZTS
+			tsrlm_ref
+#endif
+		};
+		CallInst* result = CallInst::Create(handler, handler_args, handler_args+sizeof(handler_args)/sizeof(*handler_args), "execute_result", op_blocks[i]);
 		result->setCallingConv(handler->getCallingConv()); // PHP 5.3 uses fastcc
 
 
