@@ -348,10 +348,5 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 
 	efree(op_blocks);
 
-	/* engine->clearAllGlobalMappings() clears zend_execute* as well... */
-	std::vector<GenericValue> args;
-	args.push_back(PTOGV((void*) phpllvm::execute));
-	engine->runFunction(mod->getFunction("phpllvm_set_executor"), args);
-
 	return process_oparray;
 }

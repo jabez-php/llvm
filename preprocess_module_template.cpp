@@ -21,13 +21,24 @@ int main(int argc, char**argv) {
 
 	/* Preprocessing */
 	GlobalVariable* executor_globals = dynamic_cast<GlobalVariable*>(mod->getNamedGlobal("executor_globals"));
-	GlobalVariable* compiler_globals = dynamic_cast<GlobalVariable*>(mod->getNamedGlobal("executor_globals"));
-
 	executor_globals->setInitializer(NULL); // remove 'zeroinitializer'
 	executor_globals->setLinkage(GlobalValue::ExternalLinkage);
 
+	GlobalVariable* compiler_globals = dynamic_cast<GlobalVariable*>(mod->getNamedGlobal("executor_globals"));
 	compiler_globals->setInitializer(NULL); // remove 'zeroinitializer'
 	compiler_globals->setLinkage(GlobalValue::ExternalLinkage);
+
+	GlobalVariable* zend_execute = dynamic_cast<GlobalVariable*>(mod->getNamedGlobal("zend_execute"));
+	zend_execute->setInitializer(NULL); // remove 'zeroinitializer'
+	zend_execute->setLinkage(GlobalValue::ExternalLinkage);
+
+	GlobalVariable* zend_compile_string = dynamic_cast<GlobalVariable*>(mod->getNamedGlobal("zend_compile_string"));
+	zend_compile_string->setInitializer(NULL); // remove 'zeroinitializer'
+	zend_compile_string->setLinkage(GlobalValue::ExternalLinkage);
+
+	GlobalVariable* zend_compile_file = dynamic_cast<GlobalVariable*>(mod->getNamedGlobal("zend_compile_file"));
+	zend_compile_file->setInitializer(NULL); // remove 'zeroinitializer'
+	zend_compile_file->setLinkage(GlobalValue::ExternalLinkage);
 
 	/* Write out the module */
 	verifyModule(*mod, PrintMessageAction);

@@ -50,8 +50,6 @@ void phpllvm_verify_opline(execute_stack_data *stack_data, int i);
 
 int phpllvm_get_opline_number(execute_stack_data *stack_data);
 
-void phpllvm_set_executor(zend_execute_t new_execute);
-
 opcode_handler_t phpllvm_get_opcode_handler(zend_op* op);
 
 #ifdef __cplusplus
