@@ -130,3 +130,27 @@ opcode_handler_t phpllvm_get_opcode_handler(zend_op* op) {
 	zend_vm_set_opcode_handler(&op_copy);
 	return op_copy.handler;
 }
+
+void phpllvm_fix_jumps(zend_op_array *op_array, zend_op* orig_first) {
+	/* TODO: It would be nicer to initialize these addresses correctly directly but it's tricky to get the real memory address of the new array while still generating the initializer. */
+
+	int i;
+	for (i=0; i < op_array->last; ++i) {
+		zend_op *zo = op_array->opcodes + i;
+
+		/*Note: We need to update the "absolute" jump addresses that are not given as offsets from the first op. */
+		switch (zo->opcode) {
+			case ZEND_JMP:
+				zo->op1.u.jmp_addr = op_array->opcodes + (zo->op1.u.jmp_addr - orig_first);
+				break;
+			case ZEND_JMPZ:
+			case ZEND_JMPNZ:
+			case ZEND_JMPZ_EX:
+			case ZEND_JMPNZ_EX:
+				zo->op2.u.jmp_addr = op_array->opcodes + (zo->op2.u.jmp_addr - orig_first);
+				break;
+			default:
+				break;
+		}
+	}
+}
