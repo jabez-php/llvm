@@ -133,13 +133,12 @@ void phpllvm::execute(zend_op_array *op_array TSRMLS_DC) {
 	if (!op_array->filename || std::string("Command line code") == op_array->filename) {
 
 		/* Don't cache "Command line code". */
-		asprintf(&name, "command_line_code");
+		name = strdup("command_line_code");
 		cache = false;
 		function = NULL;
 
 	} else {
-
-		asprintf(&name, "%s__c__%s__f__%s__s__%u",
+		spprintf(&name, 0, "%s__c__%s__f__%s__s__%u",
 			(op_array->filename)? op_array->filename : "",
 			(op_array->scope)? op_array->scope->name : "",
 			(op_array->function_name)? op_array->function_name : "",
