@@ -528,7 +528,9 @@ static GlobalVariable* dump_opcodes(zend_op* opcodes, int count, Module* mod, Ex
 		// 	uint lineno;
 		// 	zend_uchar opcode;
 		// };
-		// %struct.zend_op = type { i32 (%struct.zend_execute_data*)*, %struct.znode, %struct.znode, %struct.znode, i32, i32, i8 }
+		// llvm-gcc: %struct.zend_op = type { i32 (%struct.zend_execute_data*)*, %struct.znode, %struct.znode, %struct.znode, i32, i32, i8 }
+		// clang:    %struct._zend_op = type <{ i32 (%struct._zend_execute_data*)*, %struct._znode, %struct._znode, %struct._znode, i32, i32, i8, i8, i8, i8 }>
+
 
 		std::vector<Constant*> op_members;
 		
@@ -539,6 +541,13 @@ static GlobalVariable* dump_opcodes(zend_op* opcodes, int count, Module* mod, Ex
 		op_members.push_back(ConstantInt::get(Type::Int32Ty, opcodes[i].extended_value));
 		op_members.push_back(ConstantInt::get(Type::Int32Ty, opcodes[i].lineno));
 		op_members.push_back(ConstantInt::get(Type::Int8Ty, opcodes[i].opcode));
+
+#ifdef COMPILED_WITH_CLANG
+		// clang adds some padding
+		for (uint i = 0; i < 3; ++i) {
+			op_members.push_back(ConstantInt::get(Type::Int8Ty, 0));
+		}
+#endif
 
 		ops.push_back(ConstantStruct::get(op_type, op_members));
 	}
