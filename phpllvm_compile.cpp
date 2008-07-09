@@ -114,7 +114,7 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 	Function* get_handler = mod->getFunction("phpllvm_get_opcode_handler");
 
 	const Type* op_array_type = PointerType::getUnqual(mod->getTypeByName(STRUCT("zend_op_array")));
-	const Type* execute_data_type = PointerType::getUnqual(mod->getTypeByName(STRUCT("zend_execute_data")));
+//	const Type* execute_data_type = PointerType::getUnqual(mod->getTypeByName(STRUCT("zend_execute_data")));
 
 	/* Dump the op_array into an LLVM Constant */
 	// TODO:
@@ -154,7 +154,7 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 	BasicBlock **op_blocks;
 	op_blocks = (BasicBlock**) emalloc(
 		sizeof(BasicBlock*) * (op_array->last+1));
-	for (int i = 0; i < op_array->last; i++) {
+	for (zend_uint i = 0; i < op_array->last; ++i) {
 		op_blocks[i] = BasicBlock::Create("op_block", process_oparray);
 	}
 	// avoid special cases in branching for the last opblock
@@ -225,7 +225,7 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 	Value* current_op_number = builder.CreateCall(get_opline_number, stack_data, "current");
 
 	SwitchInst* reposition_switch = builder.CreateSwitch(current_op_number, ret, op_array->last);
-	for (int i = 0; i < op_array->last; i++)
+	for (zend_uint i = 0; i < op_array->last; ++i)
 		reposition_switch->addCase(ConstantInt::get(Type::Int32Ty, i), op_blocks[i]);
 
 	/* Populate the direct return block */
@@ -248,7 +248,7 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 #endif
 
 	/* populate each op_code block */
-	for (int i = 0; i < op_array->last; i++) {
+	for (zend_uint i = 0; i < op_array->last; ++i) {
 		zend_op* op = op_array->opcodes + i;
 
 		builder.SetInsertPoint(op_blocks[i]);
@@ -420,6 +420,7 @@ static GlobalVariable* dump_arg_info_array(zend_arg_info* info_array, int count,
 	return new GlobalVariable(initializer->getType(), true, GlobalValue::InternalLinkage, initializer, "arg_infos", mod);
 }
 
+#ifndef COMPILED_WITH_CLANG
 static Constant* copy_zval(zval* zval, Module* mod) {
 	// struct _zval_struct {
 	// 	/* Variable information */
@@ -461,6 +462,7 @@ static Constant* copy_zval(zval* zval, Module* mod) {
 
 	return ConstantStruct::get(zval_type, zval_members);
 }
+#endif
 
 static Constant* copy_znode(znode* node, Module* mod) {
 	// typedef struct _znode {
@@ -479,20 +481,32 @@ static Constant* copy_znode(znode* node, Module* mod) {
 	// 	} u;
 	// } znode;
 
-	// %struct.znode = type { i32, %struct.zend_declarables }
-	// 
-	// %struct.zend_declarables = type { %struct.zval }
+	// llvm-gcc: %struct.znode = type { i32, %struct.zend_declarables }
+	// clang:    %struct._znode = type <{ i32, %union.anon }>
 
 	const StructType* znode_type = cast<const StructType>(mod->getTypeByName(STRUCT("znode")));
-	const StructType* zval_type = cast<const StructType>(mod->getTypeByName(STRUCT("zval")));
-	const StructType* declarables_type = cast<const StructType>(mod->getTypeByName(STRUCT("zend_declarables")));
-
-	std::vector<Constant*> declarables_members;
-	declarables_members.push_back(copy_zval(&node->u.constant, mod));
 
 	std::vector<Constant*> znode_members;
 	znode_members.push_back(ConstantInt::get(Type::Int32Ty, node->op_type));
+
+#ifdef COMPILED_WITH_CLANG
+	std::vector<Constant*> union_anon_members;
+
+	// %union.anon = type [16 x i8]
+	char *array = (char*)&node->u;
+	for (uint i = 0; i < 16; ++i) {
+		union_anon_members.push_back(ConstantInt::get(Type::Int8Ty, array[i]));
+	}
+
+	znode_members.push_back(ConstantArray::get(ArrayType::get(Type::Int8Ty, 16), union_anon_members));
+#else
+	// %struct.zend_declarables = type { %struct.zval }
+	const StructType* declarables_type = cast<const StructType>(mod->getTypeByName(STRUCT("zend_declarables")));
+	std::vector<Constant*> declarables_members;
+	declarables_members.push_back(copy_zval(&node->u.constant, mod));
+
 	znode_members.push_back(ConstantStruct::get(declarables_type, declarables_members));
+#endif
 
 	return ConstantStruct::get(znode_type, znode_members);
 }
@@ -628,6 +642,7 @@ static GlobalVariable* dump_try_catch_array(zend_try_catch_element* elements, in
 	return new GlobalVariable(initializer->getType(), true, GlobalValue::InternalLinkage, initializer, "try_catch_arr", mod);
 }
 
+#if 0
 static GlobalVariable* dump_static_variables(HashTable* table, Module* mod) {
 	const Type* hashtable_type = mod->getTypeByName(STRUCT("HashTable"));
 
@@ -635,6 +650,7 @@ static GlobalVariable* dump_static_variables(HashTable* table, Module* mod) {
 
 	return new GlobalVariable(initializer->getType(), true, GlobalValue::InternalLinkage, initializer, "static_vars", mod);
 }
+#endif
 
 static GlobalVariable* dump_op_array(zend_op_array* op_array, Module* mod, ExecutionEngine* engine) {
 	const StructType* op_array_type = cast<const StructType>(mod->getTypeByName(STRUCT("zend_op_array")));
@@ -741,7 +757,6 @@ static GlobalVariable* dump_op_array(zend_op_array* op_array, Module* mod, Execu
 	// int current_brk_cont;
 	members.push_back(ConstantInt::get(Type::Int32Ty, op_array->current_brk_cont));
 
-	zend_try_catch_element *try_catch_array;
 	if (op_array->try_catch_array) {
 		GlobalVariable* var = dump_try_catch_array(op_array->try_catch_array, op_array->last_try_catch, mod);
 		members.push_back(ConstantExpr::getGetElementPtr(var, &zero_indices[0], 2));
