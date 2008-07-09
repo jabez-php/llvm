@@ -1,4 +1,5 @@
 #include <llvm/Module.h>
+#include <llvm/DerivedTypes.h>
 #include <llvm/Type.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Bitcode/ReaderWriter.h>
@@ -15,9 +16,17 @@ int main(int argc, char**argv) {
 
 	/* Read the module. */
 	MemoryBuffer* buf;
-	buf = MemoryBuffer::getFile(compile_file);
+	std::string err;
 
-	mod = ParseBitcodeFile(buf);
+	if (!(buf = MemoryBuffer::getFile(compile_file, &err))) {
+		fprintf(stderr, "Couldn't read the '%s' file: %s\n", compile_file, err.c_str());
+		return -1;
+	}
+
+	if (!(mod = ParseBitcodeFile(buf, &err))) {
+		fprintf(stderr, "Couldn't parse the '%s' file: %s\n", compile_file, err.c_str());
+		return -1;
+	}
 
 	/* Preprocessing */
 	GlobalVariable* executor_globals = dynamic_cast<GlobalVariable*>(mod->getNamedGlobal("executor_globals"));
@@ -40,6 +49,13 @@ int main(int argc, char**argv) {
 	zend_compile_file->setInitializer(NULL); // remove 'zeroinitializer'
 	zend_compile_file->setLinkage(GlobalValue::ExternalLinkage);
 
+// NOTE: keep this #if in sync with zend.h
+#if defined(__GNUC__) && !defined(__INTEL_COMPILER) && !defined(DARWIN) && !defined(__hpux) && !defined(_AIX) && !defined(__osf__)
+	Function *aliasee = mod->getFunction("zend_error");
+	GlobalAlias *alias = new GlobalAlias(aliasee->getType(), Function::ExternalLinkage, "zend_error_noreturn", aliasee, mod);
+	alias->takeName(mod->getFunction("zend_error_noreturn"));
+#endif
+
 	/* Write out the module */
 	verifyModule(*mod, PrintMessageAction);
 
@@ -51,5 +67,5 @@ int main(int argc, char**argv) {
 	
 	fb.close();
 
-    return 0;
+	return 0;
 }
