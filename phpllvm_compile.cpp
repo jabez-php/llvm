@@ -29,6 +29,15 @@
 using namespace llvm;
 using namespace phpllvm;
 
+// currently type names are different when compiled with clang or llvm-gcc
+#ifdef COMPILED_WITH_CLANG
+# define STRUCT(s) "struct._" s
+# define UNION(s) "union._" s
+#else
+# define STRUCT(s) "struct." s
+# define UNION(s) "struct." s
+#endif
+
 static GlobalVariable* dump_op_array(zend_op_array* val, Module* mod, ExecutionEngine* engine);
 
 // from: static inline zend_brk_cont_element* zend_brk_cont(zval *nest_levels_zval, int array_offset, zend_op_array *op_array, temp_variable *Ts TSRMLS_DC)   [zend_execute.cpp]
@@ -104,8 +113,8 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 	Function* get_opline_number = mod->getFunction("phpllvm_get_opline_number");
 	Function* get_handler = mod->getFunction("phpllvm_get_opcode_handler");
 
-	const Type* op_array_type = PointerType::getUnqual(mod->getTypeByName("struct.zend_op_array"));
-	const Type* execute_data_type = PointerType::getUnqual(mod->getTypeByName("struct.zend_execute_data"));
+	const Type* op_array_type = PointerType::getUnqual(mod->getTypeByName(STRUCT("zend_op_array")));
+	const Type* execute_data_type = PointerType::getUnqual(mod->getTypeByName(STRUCT("zend_execute_data")));
 
 	/* Dump the op_array into an LLVM Constant */
 	// TODO:
@@ -352,7 +361,7 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 }
 
 static GlobalVariable* dump_class_entry(zend_class_entry* class_entry, Module* mod) {
-	const Type* class_entry_type = mod->getTypeByName("struct.zend_class_entry");
+	const Type* class_entry_type = mod->getTypeByName(STRUCT("zend_class_entry"));
 
 	Constant* initializer = Constant::getNullValue(class_entry_type);
 
@@ -360,7 +369,7 @@ static GlobalVariable* dump_class_entry(zend_class_entry* class_entry, Module* m
 }
 
 static GlobalVariable* dump_function(zend_function* fn, Module* mod) {
-	const Type* function_type = mod->getTypeByName("struct.zend_function");
+	const Type* function_type = mod->getTypeByName(STRUCT("zend_function"));
 
 	Constant* initializer = Constant::getNullValue(function_type);
 
@@ -368,7 +377,7 @@ static GlobalVariable* dump_function(zend_function* fn, Module* mod) {
 }
 
 static GlobalVariable* dump_arg_info_array(zend_arg_info* info_array, int count, Module* mod) {
-	const StructType* arg_info_type = cast<const StructType>(mod->getTypeByName("struct.zend_arg_info"));
+	const StructType* arg_info_type = cast<const StructType>(mod->getTypeByName(STRUCT("zend_arg_info")));
 
 	std::vector<Constant*> infos;
 	for(int i = 0; i < count; i++) {
@@ -443,8 +452,12 @@ static Constant* copy_zval(zval* zval, Module* mod) {
 	// } zvalue_value;
 	// %struct.zvalue_value = type { double }
 
-	const StructType* zval_type = cast<const StructType>(mod->getTypeByName("struct.zval"));
-	const StructType* zvalue_value_type = cast<const StructType>(mod->getTypeByName("struct.zvalue_value"));
+#ifdef COMPILED_WITH_CLANG
+	const StructType* zval_type = cast<const StructType>(mod->getTypeByName(STRUCT("zval_struct")));
+#else
+	const StructType* zval_type = cast<const StructType>(mod->getTypeByName(STRUCT("zval")));
+#endif
+	const StructType* zvalue_value_type = cast<const StructType>(mod->getTypeByName(UNION("zvalue_value")));
 
 
 	std::vector<Constant*> zvalue_value_members;
@@ -480,9 +493,9 @@ static Constant* copy_znode(znode* node, Module* mod) {
 	// 
 	// %struct.zend_declarables = type { %struct.zval }
 
-	const StructType* znode_type = cast<const StructType>(mod->getTypeByName("struct.znode"));
-	const StructType* zval_type = cast<const StructType>(mod->getTypeByName("struct.zval"));
-	const StructType* declarables_type = cast<const StructType>(mod->getTypeByName("struct.zend_declarables"));
+	const StructType* znode_type = cast<const StructType>(mod->getTypeByName(STRUCT("znode")));
+	const StructType* zval_type = cast<const StructType>(mod->getTypeByName(STRUCT("zval")));
+	const StructType* declarables_type = cast<const StructType>(mod->getTypeByName(STRUCT("zend_declarables")));
 
 	std::vector<Constant*> declarables_members;
 	declarables_members.push_back(copy_zval(&node->u.constant, mod));
@@ -495,7 +508,7 @@ static Constant* copy_znode(znode* node, Module* mod) {
 }
 
 static GlobalVariable* dump_opcodes(zend_op* opcodes, int count, Module* mod, ExecutionEngine* engine) {
-	const StructType* op_type = cast<const StructType>(mod->getTypeByName("struct.zend_op"));
+	const StructType* op_type = cast<const StructType>(mod->getTypeByName(STRUCT("zend_op")));
 	const ArrayType *op_array_type = ArrayType::get(op_type, count);
 
 	const Type* handler_type = mod->getFunction("phpllvm_get_opcode_handler")->getReturnType();
@@ -534,7 +547,7 @@ static GlobalVariable* dump_opcodes(zend_op* opcodes, int count, Module* mod, Ex
 }
 
 static GlobalVariable* dump_compiled_vars(zend_compiled_variable* vars, int count, Module* mod) {
-	const StructType* compiled_variable_type = cast<const StructType>(mod->getTypeByName("struct.zend_compiled_variable"));
+	const StructType* compiled_variable_type = cast<const StructType>(mod->getTypeByName(STRUCT("zend_compiled_variable")));
 
 	std::vector<Constant*> members;
 
@@ -570,7 +583,7 @@ static GlobalVariable* dump_compiled_vars(zend_compiled_variable* vars, int coun
 }
 
 static GlobalVariable* dump_brk_cont_array(zend_brk_cont_element* elements, int count, Module* mod) {
-	const StructType* brk_cont_element_type = cast<const StructType>(mod->getTypeByName("struct.zend_brk_cont_element"));
+	const StructType* brk_cont_element_type = cast<const StructType>(mod->getTypeByName(STRUCT("zend_brk_cont_element")));
 
 	std::vector<Constant*> members;
 
@@ -600,7 +613,7 @@ static GlobalVariable* dump_brk_cont_array(zend_brk_cont_element* elements, int 
 }
 
 static GlobalVariable* dump_try_catch_array(zend_try_catch_element* elements, int count, Module* mod) {
-	const StructType* try_catch_element_type = cast<const StructType>(mod->getTypeByName("struct.zend_try_catch_element"));
+	const StructType* try_catch_element_type = cast<const StructType>(mod->getTypeByName(STRUCT("zend_try_catch_element")));
 
 	std::vector<Constant*> members;
 
@@ -626,7 +639,7 @@ static GlobalVariable* dump_try_catch_array(zend_try_catch_element* elements, in
 }
 
 static GlobalVariable* dump_static_variables(HashTable* table, Module* mod) {
-	const Type* hashtable_type = mod->getTypeByName("struct.HashTable");
+	const Type* hashtable_type = mod->getTypeByName(STRUCT("HashTable"));
 
 	Constant* initializer = Constant::getNullValue(hashtable_type);
 
@@ -634,15 +647,15 @@ static GlobalVariable* dump_static_variables(HashTable* table, Module* mod) {
 }
 
 static GlobalVariable* dump_op_array(zend_op_array* op_array, Module* mod, ExecutionEngine* engine) {
-	const StructType* op_array_type = cast<const StructType>(mod->getTypeByName("struct.zend_op_array"));
-	const Type* class_entry_type = mod->getTypeByName("struct.zend_class_entry");
-	const Type* function_type = mod->getTypeByName("struct.zend_function");
-	const Type* arg_info_type = mod->getTypeByName("struct.zend_arg_info");
-	const Type* compiled_variable_type = mod->getTypeByName("struct.zend_compiled_variable");
-	const Type* brk_cont_element_type = mod->getTypeByName("struct.zend_brk_cont_element");
-	const Type* try_catch_element_type = mod->getTypeByName("struct.zend_try_catch_element");
-	const Type* hashtable_type = mod->getTypeByName("struct.HashTable");
-	const Type* op_type = mod->getTypeByName("struct.zend_op");
+	const StructType* op_array_type = cast<const StructType>(mod->getTypeByName(STRUCT("zend_op_array")));
+	const Type* class_entry_type = mod->getTypeByName(STRUCT("zend_class_entry"));
+	const Type* function_type = mod->getTypeByName(UNION("zend_function"));
+	const Type* arg_info_type = mod->getTypeByName(STRUCT("zend_arg_info"));
+	const Type* compiled_variable_type = mod->getTypeByName(STRUCT("zend_compiled_variable"));
+	const Type* brk_cont_element_type = mod->getTypeByName(STRUCT("zend_brk_cont_element"));
+	const Type* try_catch_element_type = mod->getTypeByName(STRUCT("zend_try_catch_element"));
+	const Type* hashtable_type = mod->getTypeByName(STRUCT("HashTable"));
+	const Type* op_type = mod->getTypeByName(STRUCT("zend_op"));
 
 	std::vector<Constant*> members;
 

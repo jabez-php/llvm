@@ -26,6 +26,7 @@ if test "$PHP_PHPLLVM" == "yes"; then
   dnl give preference to clang over llvm-gcc
   if test "$PROG_CLANG" != ""; then
     LLVM_CC=$PROG_CLANG
+    CXXFLAGS="$CXXFLAGS -DCOMPILED_WITH_CLANG"
   else
     AC_PATH_PROG(PROG_LLVM_GCC, llvm-gcc,[], $PATH:$llvm_bins_path)
     if test "$PROG_LLVM_GCC," == ""; then
