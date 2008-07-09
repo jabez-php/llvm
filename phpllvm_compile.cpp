@@ -18,7 +18,6 @@
 
 #include "phpllvm_compile.h"
 #include "phpllvm_execute.h"
-#include "phpllvm_handler_lookup.h"
 
 #include <llvm/Module.h>
 #include <llvm/Function.h>
@@ -68,36 +67,6 @@ static zend_brk_cont_element* get_brk_cont_target(zval *nest_levels_zval, int ar
 	return jmp_to;
 }
 
-/* Taken from Zend/zend_vm_execute.h */
-#define _CONST_CODE  0
-#define _TMP_CODE    1
-#define _VAR_CODE    2
-#define _UNUSED_CODE 3
-#define _CV_CODE     4
-static int opcode_handler_decode(zend_op *opline)
-{
-	static const int apc_vm_decode[] = {
-		_UNUSED_CODE, /* 0              */
-		_CONST_CODE,  /* 1 = IS_CONST   */
-		_TMP_CODE,    /* 2 = IS_TMP_VAR */
-		_UNUSED_CODE, /* 3              */
-		_VAR_CODE,    /* 4 = IS_VAR     */
-		_UNUSED_CODE, /* 5              */
-		_UNUSED_CODE, /* 6              */
-		_UNUSED_CODE, /* 7              */
-		_UNUSED_CODE, /* 8 = IS_UNUSED  */
-		_UNUSED_CODE, /* 9              */
-		_UNUSED_CODE, /* 10             */
-		_UNUSED_CODE, /* 11             */
-		_UNUSED_CODE, /* 12             */
-		_UNUSED_CODE, /* 13             */
-		_UNUSED_CODE, /* 14             */
-		_UNUSED_CODE, /* 15             */
-		_CV_CODE      /* 16 = IS_CV     */
-	};
-	return (opline->opcode * 25) + (apc_vm_decode[opline->op1.op_type] * 5) + apc_vm_decode[opline->op2.op_type];
-}
-
 Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Module* mod, ExecutionEngine* engine TSRMLS_DC) {
 
 	// fprintf(stderr, "compiling %s\n", fn_name);
@@ -118,7 +87,7 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 
 	/* Dump the op_array into an LLVM Constant */
 	// TODO:
-	// /* Value* op_array_ref = */ dump_op_array(op_array, mod, engine);
+	/* Value* op_array_ref = */ dump_op_array(op_array, mod, engine);
 
 	/* Define the main function for the op_array (fn_name)
 		Takes op_array* and TSRMLS_D as arguments. */
