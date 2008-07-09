@@ -93,6 +93,7 @@ int main(int argc, char**argv) {
 #if defined(__GNUC__) && !defined(__INTEL_COMPILER) && !defined(DARWIN) && !defined(__hpux) && !defined(_AIX) && !defined(__osf__)
 	Function *aliasee = mod->getFunction("zend_error");
 	GlobalAlias *alias = new GlobalAlias(aliasee->getType(), Function::ExternalLinkage, "zend_error_noreturn", aliasee, mod);
+	mod->getFunction("zend_error_noreturn")->replaceAllUsesWith(alias);
 	alias->takeName(mod->getFunction("zend_error_noreturn"));
 #endif
 
