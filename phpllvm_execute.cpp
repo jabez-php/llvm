@@ -86,6 +86,15 @@ void phpllvm::init_jit_engine(const char* filename TSRMLS_DC) {
 	provider = new ExistingModuleProvider(module);
 	engine = ExecutionEngine::create(provider);
 
+	/* Force codegen of handlers. */
+	for (Module::iterator I = module->begin(), E = module->end(); I != E; ++I) {
+		Function *Fn = &*I;
+		if (!Fn->isDeclaration() && Fn->getName().compare(0, 5, "ZEND_") == 0) {
+			// fprintf(stderr, "Generating: %s\n", Fn->getName().c_str());
+			engine->getPointerToFunction(Fn);
+		}
+	}
+
 	/* Set up the optimization passes */
 
 	// We ca do other optimizations per Function as they're generated
@@ -133,7 +142,7 @@ void phpllvm::execute(zend_op_array *op_array TSRMLS_DC) {
 	if (!op_array->filename || std::string("Command line code") == op_array->filename) {
 
 		/* Don't cache "Command line code". */
-		name = strdup("command_line_code");
+		spprintf(&name, 0, "command_line_code");
 		cache = false;
 		function = NULL;
 
@@ -164,7 +173,7 @@ void phpllvm::execute(zend_op_array *op_array TSRMLS_DC) {
 	// else fprintf(stderr, "cache hit: %s\n", name);
 
 	// fprintf(stderr, "executing %s\n", name);
-	free(name);
+	efree(name);
 
 	/* Call the compiled function */
 	std::vector<GenericValue> args;
@@ -182,11 +191,7 @@ void phpllvm::execute(zend_op_array *op_array TSRMLS_DC) {
 
 	if(!cache) {
 		engine->freeMachineCodeForFunction(function);
-
-		Function::use_iterator i, e;
-		for (i = function->use_begin(), e = function->use_end(); i != e; ++i)
-			dynamic_cast<Instruction*>(i.getUse().getUser())->eraseFromParent();
-
+		cast<Instruction>(function->use_begin().getUse().getUser())->eraseFromParent(); // delete the 'call' instruction
 		function->eraseFromParent();
 	}
 }

@@ -118,7 +118,7 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 
 	/* Dump the op_array into an LLVM Constant */
 	// TODO:
-	/* Value* op_array_ref = */ dump_op_array(op_array, mod, engine);
+	// /* Value* op_array_ref = */ dump_op_array(op_array, mod, engine);
 
 	/* Define the main function for the op_array (fn_name)
 		Takes op_array* and TSRMLS_D as arguments. */
@@ -258,16 +258,6 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 			builder.CreateBr(op_blocks[i + 1]);
 			continue;
 		}
-
-		/* Need to force the compilation of the handler because otherwise phpllvm_get_handler only
-			returns the address of the call to the JIT compilation hook, which getGlobalValueAtAddress
-			doesn't recognize as the Function. */
-		// TODO: Do this without phpllvm_get_function_name(), preferably from within phpllvm_get_handler
-		engine->clearAllGlobalMappings();
-		const char* handler_name = phpllvm_get_function_name(opcode_handler_decode(op));
-		engine->getPointerToGlobal(mod->getFunction(handler_name));
-		/* phpllvm_get_handler will return the old address unless recompiled. */
-		engine->recompileAndRelinkFunction(get_handler);
 
 		/* Use the reverse lookup from an actual memory address (handler_raw)
 			to the corresponding llvm::Function */
