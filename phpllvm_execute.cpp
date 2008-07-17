@@ -98,7 +98,6 @@ void phpllvm::init_jit_engine(const char* filename TSRMLS_DC) {
 
 	/* Set up the optimization passes */
 	opt_fpass_manager = new FunctionPassManager(provider);
-	opt_fpass_manager->add(new TargetData(*engine->getTargetData()));
 
 	opt_fpass_manager->add(new TargetData(*engine->getTargetData()));
 	pass_manager.add(new TargetData(*engine->getTargetData()));
