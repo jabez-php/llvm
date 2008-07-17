@@ -48,13 +48,14 @@ static ExecutionEngine* engine;
 static Module* module;
 static ModuleProvider* provider;
 static FunctionPassManager* opt_fpass_manager;
+static PassManager pass_manager;
 
-static void optimize_function(Function* function TSRMLS_DC) {
-	// Run optimizations on the function
+static void optimize_function(Function* function) {
+	pass_manager.run(*module);
 	opt_fpass_manager->run(*function);
 }
 
-void phpllvm::save_module(const char* filename TSRMLS_DC) {
+void phpllvm::save_module(const char* filename) {
 #ifndef NDEBUG
 	verifyModule(*module, PrintMessageAction);
 #endif
@@ -96,12 +97,17 @@ void phpllvm::init_jit_engine(const char* filename TSRMLS_DC) {
 	}
 
 	/* Set up the optimization passes */
-
-	// We ca do other optimizations per Function as they're generated
 	opt_fpass_manager = new FunctionPassManager(provider);
 	opt_fpass_manager->add(new TargetData(*engine->getTargetData()));
+
+	opt_fpass_manager->add(new TargetData(*engine->getTargetData()));
+	pass_manager.add(new TargetData(*engine->getTargetData()));
+
+	// IPO optimizations
 	// Inline function calls.
-	// opt_fpass_manager->add(createFunctionInliningPass());
+	pass_manager.add(createFunctionInliningPass());
+
+	// local optimizations
 	// Do simple "peephole" optimizations and bit-twiddling optzns.
 	opt_fpass_manager->add(createInstructionCombiningPass());
 	// Reassociate expressions.
@@ -168,7 +174,7 @@ void phpllvm::execute(zend_op_array *op_array TSRMLS_DC) {
 			zend_error_noreturn(E_ERROR, "Couldn't compile LLVM Function for %s.\n", name);
 		}
 
-		optimize_function(function TSRMLS_CC);
+		optimize_function(function);
 	}
 	// else fprintf(stderr, "cache hit: %s\n", name);
 

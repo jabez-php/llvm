@@ -79,7 +79,7 @@ static PHP_MSHUTDOWN_FUNCTION(phpllvm)
 	if (INI_BOOL("phpllvm.active"))
 		restore_executor(TSRMLS_C);
 
-	save_module(TEMP_FILE TSRMLS_CC);
+	save_module(TEMP_FILE);
 	destroy_jit_engine(TSRMLS_C);
 
 	return SUCCESS;

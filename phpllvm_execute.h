@@ -35,7 +35,7 @@ namespace phpllvm {
 
 	void execute(zend_op_array *op_array TSRMLS_DC);
 
-	void save_module(const char* filename TSRMLS_DC);
+	void save_module(const char* filename);
 
 }
 
