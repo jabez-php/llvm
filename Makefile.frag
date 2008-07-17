@@ -11,7 +11,7 @@ $(builddir)/phpllvm_runtime_helpers.bc.o: $(srcdir)/phpllvm_runtime_helpers.c
 $(builddir)/zend_exceptions.bc.o: $(php_sources_path)/Zend/zend_exceptions.c
 	$(LLVM_CC) -emit-llvm $(COMMON_FLAGS) $(CFLAGS_CLEAN) $(EXTRA_CFLAGS) -c $(php_sources_path)/Zend/zend_exceptions.c -o $(builddir)/zend_exceptions.bc.o
 
-$(builddir)/zend_execute.bc.o: $(php_sources_path)/Zend/zend_execute.c
+$(builddir)/zend_execute.bc.o: $(php_sources_path)/Zend/zend_execute.c $(php_sources_path)/Zend/zend_vm_execute.h
 	$(LLVM_CC) -emit-llvm $(COMMON_FLAGS) $(CFLAGS_CLEAN) $(EXTRA_CFLAGS) -c $(php_sources_path)/Zend/zend_execute.c -o $(builddir)/zend_execute.bc.o
 
 $(builddir)/zend_execute_API.bc.o: $(php_sources_path)/Zend/zend_execute_API.c
@@ -20,6 +20,7 @@ $(builddir)/zend_execute_API.bc.o: $(php_sources_path)/Zend/zend_execute_API.c
 $(builddir)/zend_compile.bc.o: $(php_sources_path)/Zend/zend_compile.c
 	$(LLVM_CC) -emit-llvm $(COMMON_FLAGS) $(CFLAGS_CLEAN) $(EXTRA_CFLAGS) -c $(php_sources_path)/Zend/zend_compile.c -o $(builddir)/zend_compile.bc.o
 
-$(srcdir)/module_template.bc: $(builddir)/phpllvm_runtime_helpers.bc.o $(builddir)/zend_exceptions.bc.o $(builddir)/zend_execute.bc.o $(builddir)/zend_execute_API.bc.o $(builddir)/zend_compile.bc.o $(php_sources_path)/Zend/zend_vm_execute.h  $(builddir)/preprocess_module_template
+$(srcdir)/module_template.bc: $(builddir)/phpllvm_runtime_helpers.bc.o $(builddir)/zend_exceptions.bc.o $(builddir)/zend_execute.bc.o $(builddir)/zend_execute_API.bc.o $(builddir)/zend_compile.bc.o $(builddir)/preprocess_module_template
 	$(LLVM_LINK) $(builddir)/phpllvm_runtime_helpers.bc.o $(builddir)/zend_exceptions.bc.o $(builddir)/zend_execute.bc.o $(builddir)/zend_execute_API.bc.o $(builddir)/zend_compile.bc.o > module_template.bc
-	$(builddir)/preprocess_module_template module_template.bc
+	$(builddir)/preprocess_module_template $@
+	opt -std-compile-opts -f $@ -o $@
