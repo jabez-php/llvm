@@ -22,9 +22,17 @@ extern "C" {
 #endif
 
 #include "php.h"
+#include "ext/standard/info.h"
 #include "php_ini.h"
 #include "phpllvm.h"
 }
+
+#undef PACKAGE_BUGREPORT
+#undef PACKAGE_NAME
+#undef PACKAGE_STRING
+#undef PACKAGE_TARNAME
+#undef PACKAGE_VERSION
+#include "llvm/Config/config.h"
 
 #include "phpllvm_compile.h"
 #include "phpllvm_execute.h"
@@ -47,26 +55,16 @@ static void phpllvm_init_globals(zend_phpllvm_globals *phpllvm_globals)
 {
 }
 
-static PHP_RINIT_FUNCTION(phpllvm)
-{
-	if (INI_BOOL("phpllvm.active"))
-		override_executor(TSRMLS_C);
-
-	return SUCCESS;
-}
-
 static PHP_MINIT_FUNCTION(phpllvm)
 {
 	ZEND_INIT_MODULE_GLOBALS(phpllvm, phpllvm_init_globals, NULL);
 
 	REGISTER_INI_ENTRIES();
 
-	// FILE* temp = fopen(TEMP_FILE, "r");
-	// if (temp) {
-	// 	init_jit_engine(TEMP_FILE, TSRMLS_C);
-	// 	fclose(temp);
-	// } else
 	init_jit_engine(NULL TSRMLS_CC);
+
+	if (INI_BOOL("phpllvm.active"))
+		override_executor(TSRMLS_C);
 
 	return SUCCESS;
 }
@@ -74,15 +72,34 @@ static PHP_MINIT_FUNCTION(phpllvm)
 
 static PHP_MSHUTDOWN_FUNCTION(phpllvm)
 {
-	UNREGISTER_INI_ENTRIES();
-
 	if (INI_BOOL("phpllvm.active"))
 		restore_executor(TSRMLS_C);
+
+	UNREGISTER_INI_ENTRIES();
 
 	save_module(TEMP_FILE);
 	destroy_jit_engine(TSRMLS_C);
 
 	return SUCCESS;
+}
+
+static const char* getLLVMString()
+{
+#ifdef LLVM_VERSION_INFO
+    return PACKAGE_VERSION ", " LLVM_VERSION_INFO;
+#else
+    return PACKAGE_VERSION;
+#endif
+}
+
+static PHP_MINFO_FUNCTION(phpllvm)
+{
+	php_info_print_table_start();
+	php_info_print_table_row(2, "Revision", "$Revision$");
+	php_info_print_table_row(2, "LLVM version", getLLVMString());
+	php_info_print_table_end();
+
+	DISPLAY_INI_ENTRIES();
 }
 
 static function_entry phpllvm_functions[] = {
@@ -95,9 +112,9 @@ zend_module_entry phpllvm_module_entry = {
 	phpllvm_functions,
 	PHP_MINIT(phpllvm),
 	PHP_MSHUTDOWN(phpllvm),
-	PHP_RINIT(phpllvm),
 	NULL,
 	NULL,
+	PHP_MINFO(phpllvm),
 	PHP_PHPLLVM_VERSION,
 	STANDARD_MODULE_PROPERTIES
 };
