@@ -116,13 +116,13 @@ int phpllvm_get_opline_number(execute_stack_data *stack_data) {
 	return stack_data->execute_data->opline - stack_data->execute_data->op_array->opcodes;
 }
 
-void phpllvm_verify_opline(execute_stack_data *stack_data, int i) {
 #ifndef NDEBUG
+void phpllvm_verify_opline(execute_stack_data *stack_data, int i) {
 	// fprintf(stderr, "veryifying zend engine has opline == %u...\n", i);
 	if (stack_data->execute_data->opline != stack_data->execute_data->op_array->opcodes + i)
 		fprintf(stderr, "Zend engine has opline == %u, while we think it's %u\n", stack_data->execute_data->opline - stack_data->execute_data->op_array->opcodes, i);
-#endif
 }
+#endif
 
 opcode_handler_t phpllvm_get_opcode_handler(zend_op* op) {
 	zend_op op_copy = *op;

@@ -87,7 +87,7 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 
 	/* Dump the op_array into an LLVM Constant */
 	// TODO:
-	/* Value* op_array_ref = */ dump_op_array(op_array, mod, engine);
+// 	/* Value* op_array_ref = */ dump_op_array(op_array, mod, engine);
 
 	/* Define the main function for the op_array (fn_name)
 		Takes op_array* and TSRMLS_D as arguments. */
@@ -199,22 +199,8 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 
 	/* Populate the direct return block */
 	builder.SetInsertPoint(ret);
-
 	builder.CreateRetVoid();
 
-#ifndef NDEBUG
-	/* prefix each op_block with a check that verifies that we're on the right op. */
-	Function* verify_opline = mod->getFunction("phpllvm_verify_opline");
-	for (int i = 0; i < op_array->last; i++) {
-		builder.SetInsertPoint(op_blocks[i]);
-		if (op_array->opcodes[i].opcode != ZEND_OP_DATA) {
-			// verify that execute_data->opline is set to i'th op_code
-			builder.CreateCall2(verify_opline,
-							stack_data,
-							ConstantInt::get(Type::Int32Ty, i));
-		}
-	}
-#endif
 
 	/* populate each op_code block */
 	for (zend_uint i = 0; i < op_array->last; ++i) {
@@ -227,6 +213,11 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 			builder.CreateBr(op_blocks[i + 1]);
 			continue;
 		}
+
+#ifndef NDEBUG
+		// verify that execute_data->opline is set to i'th op_code
+		builder.CreateCall2(verify_opline, stack_data, ConstantInt::get(Type::Int32Ty, i));
+#endif
 
 		/* Use the reverse lookup from an actual memory address (handler_raw)
 			to the corresponding llvm::Function */
