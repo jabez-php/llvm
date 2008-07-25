@@ -7,14 +7,14 @@ PHP_ARG_WITH(llvm-bins, location of the llvm-config tool,
 PHP_ARG_WITH(php-source, location of the PHP source code,
 [  --with-php-source=DIR   Location of the PHP source code], no, no)
 
-if test "$PHP_PHPLLVM" == "yes"; then
+if test "$PHP_PHPLLVM" = "yes"; then
   AC_DEFINE(HAVE_PHPLLVM, 1, [Whether you have LLVM based execution enabled])
 
   phpllvm_sources="phpllvm.cpp phpllvm_execute.cpp phpllvm_compile.cpp"
 
   llvm_bins_path="";
   if test "$PHP_LLVM_BINS" != "no"; then
-      if test "$PHP_LLVM_BINS" == "yes"; then
+      if test "$PHP_LLVM_BINS" = "yes"; then
         AC_MSG_ERROR([You must specify a path when using --with-llvm])
       fi
 
@@ -29,14 +29,14 @@ if test "$PHP_PHPLLVM" == "yes"; then
     CXXFLAGS="$CXXFLAGS -DCOMPILED_WITH_CLANG"
   else
     AC_PATH_PROG(PROG_LLVM_GCC, llvm-gcc,[], $PATH:$llvm_bins_path)
-    if test "$PROG_LLVM_GCC," == ""; then
+    if test "$PROG_LLVM_GCC," = ""; then
       AC_MSG_ERROR([Neither clang (ccc) nor llvm-gcc were found])
     fi
     LLVM_CC=$PROG_LLVM_GCC
   fi
   PHP_SUBST(LLVM_CC)
 
-  if test "$PHP_PHP_SOURCE" == "no" -o "$PHP_PHP_SOURCE" == "yes"; then
+  if test "$PHP_PHP_SOURCE" = "no" -o "$PHP_PHP_SOURCE" = "yes"; then
     AC_MSG_ERROR([You must specify --with-php-source=DIR when using --enable-phpllvm])
   fi
   php_sources_path="$PHP_PHP_SOURCE";
