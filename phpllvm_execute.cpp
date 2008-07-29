@@ -43,7 +43,7 @@ using namespace phpllvm;
 
 /* pointer to the original Zend engine execute function */
 typedef void (zend_execute_t)(zend_op_array *op_array TSRMLS_DC);
-zend_execute_t *old_execute;
+static zend_execute_t *old_execute;
 
 static ExecutionEngine* engine;
 static Module* module;
@@ -148,7 +148,7 @@ void phpllvm::execute(zend_op_array *op_array TSRMLS_DC) {
 	if (!op_array->filename || std::string("Command line code") == op_array->filename) {
 
 		/* Don't cache "Command line code". */
-		spprintf(&name, 0, "command_line_code");
+		name = estrdup("command_line_code");
 		cache = false;
 		function = NULL;
 
