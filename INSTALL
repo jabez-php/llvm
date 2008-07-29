@@ -6,7 +6,7 @@
 
 4. Copy "module_template.bc" to your current working directory before you run:
 
-    $ php -dextension=phpllvm.so -dphpllvm.active=1 your_script.php
+    $ php -dextension=phpllvm.so your_script.php
 
     After each execution, you can examine the generated LLVM in the current
     working directory with:
