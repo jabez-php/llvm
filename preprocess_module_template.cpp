@@ -39,7 +39,9 @@ extern "C" {
 
 using namespace llvm;
 
-int main(int argc, char**argv) {
+
+int main(int argc, char **argv)
+{
 	Module* mod;
 	const char* compile_file = (argc == 2)? argv[1] : "module_template.bc";
 
@@ -58,58 +60,37 @@ int main(int argc, char**argv) {
 	}
 
 	/* Preprocessing */
+	const char *global_vars[] = {
 #ifndef ZTS
-	GlobalVariable* executor_globals = dynamic_cast<GlobalVariable*>(mod->getNamedGlobal("executor_globals"));
-	executor_globals->setInitializer(NULL); // remove 'zeroinitializer'
-	executor_globals->setLinkage(GlobalValue::ExternalLinkage);
-
-	GlobalVariable* compiler_globals = dynamic_cast<GlobalVariable*>(mod->getNamedGlobal("compiler_globals"));
-	compiler_globals->setInitializer(NULL); // remove 'zeroinitializer'
-	compiler_globals->setLinkage(GlobalValue::ExternalLinkage);
+		"executor_globals",
+		"compiler_globals",
 #endif
+		"default_exception_ce",
+		"empty_fcall_info",
+		"empty_fcall_info_cache",
+		"error_exception_ce",
+		"zend_compile_file",
+		"zend_compile_string",
+		"zend_execute",
+		"zend_execute_internal",
+		"zend_opcode_handlers",
+		"zend_throw_exception_hook",
+	};
 
-	GlobalVariable* zend_execute = dynamic_cast<GlobalVariable*>(mod->getNamedGlobal("zend_execute"));
-	zend_execute->setInitializer(NULL); // remove 'zeroinitializer'
-	zend_execute->setLinkage(GlobalValue::ExternalLinkage);
+	// transform global variables into an extern reference, so that the bitcode
+	// references the VM state and not its own vars
+	for (uint i = 0; i < sizeof(global_vars)/sizeof(global_vars); ++i) {
+		GlobalVariable* GV = dynamic_cast<GlobalVariable*>(mod->getNamedGlobal(global_vars[i]));
+		GV->setInitializer(NULL); // remove 'zeroinitializer'
+		GV->setLinkage(GlobalValue::ExternalLinkage);
+	}
 
-	GlobalVariable* zend_compile_string = dynamic_cast<GlobalVariable*>(mod->getNamedGlobal("zend_compile_string"));
-	zend_compile_string->setInitializer(NULL); // remove 'zeroinitializer'
-	zend_compile_string->setLinkage(GlobalValue::ExternalLinkage);
-
-	GlobalVariable* zend_compile_file = dynamic_cast<GlobalVariable*>(mod->getNamedGlobal("zend_compile_file"));
-	zend_compile_file->setInitializer(NULL); // remove 'zeroinitializer'
-	zend_compile_file->setLinkage(GlobalValue::ExternalLinkage);
-
-	GlobalVariable* zend_execute_internal = dynamic_cast<GlobalVariable*>(mod->getNamedGlobal("zend_execute_internal"));
-	zend_execute_internal->setInitializer(NULL); // remove 'zeroinitializer'
-	zend_execute_internal->setLinkage(GlobalValue::ExternalLinkage);
-
-	GlobalVariable* zend_opcode_handlers = dynamic_cast<GlobalVariable*>(mod->getNamedGlobal("zend_opcode_handlers"));
-	zend_opcode_handlers->setInitializer(NULL); // remove 'zeroinitializer'
-	zend_opcode_handlers->setLinkage(GlobalValue::ExternalLinkage);
-
-	GlobalVariable* zend_throw_exception_hook = dynamic_cast<GlobalVariable*>(mod->getNamedGlobal("zend_throw_exception_hook"));
-	zend_throw_exception_hook->setInitializer(NULL); // remove 'zeroinitializer'
-	zend_throw_exception_hook->setLinkage(GlobalValue::ExternalLinkage);
-
-	GlobalVariable* error_exception_ce = dynamic_cast<GlobalVariable*>(mod->getNamedGlobal("error_exception_ce"));
-	error_exception_ce->setInitializer(NULL); // remove 'zeroinitializer'
-	error_exception_ce->setLinkage(GlobalValue::ExternalLinkage);
-
-	GlobalVariable* default_exception_ce = dynamic_cast<GlobalVariable*>(mod->getNamedGlobal("default_exception_ce"));
-	default_exception_ce->setInitializer(NULL); // remove 'zeroinitializer'
-	default_exception_ce->setLinkage(GlobalValue::ExternalLinkage);
-
-	GlobalVariable* empty_fcall_info = dynamic_cast<GlobalVariable*>(mod->getNamedGlobal("empty_fcall_info"));
-	empty_fcall_info->setInitializer(NULL); // remove 'zeroinitializer'
-	empty_fcall_info->setLinkage(GlobalValue::ExternalLinkage);
-
-	GlobalVariable* empty_fcall_info_cache = dynamic_cast<GlobalVariable*>(mod->getNamedGlobal("empty_fcall_info_cache"));
-	empty_fcall_info_cache->setInitializer(NULL); // remove 'zeroinitializer'
-	empty_fcall_info_cache->setLinkage(GlobalValue::ExternalLinkage);
 
 // NOTE: keep this #if in sync with zend.h
 #if defined(__GNUC__) && !defined(__INTEL_COMPILER) && !defined(DARWIN) && !defined(__hpux) && !defined(_AIX) && !defined(__osf__)
+	// alias zend_error_noreturn() to zend_error()
+	// this is needed because zend_error_noreturn() is defined in zend.c,
+	// which we don't currently compile to bitcode
 	Function *aliasee = mod->getFunction("zend_error");
 	GlobalAlias *alias = new GlobalAlias(aliasee->getType(), Function::ExternalLinkage, "zend_error_noreturn", aliasee, mod);
 	mod->getFunction("zend_error_noreturn")->replaceAllUsesWith(alias);
@@ -122,9 +103,9 @@ int main(int argc, char**argv) {
 	std::filebuf fb;
 	fb.open(compile_file, std::ios::out);
 	std::ostream c_os(&fb);
-	
+
 	WriteBitcodeToFile(mod, c_os);
-	
+
 	fb.close();
 
 	return 0;
