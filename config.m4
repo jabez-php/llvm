@@ -46,7 +46,7 @@ if test "$PHP_PHPLLVM" = "yes"; then
   LLVM_LDFLAGS=`${llvm_path}llvm-config --ldflags --libs core jit native bitwriter bitreader scalaropts ipo target analysis executionengine support`
   LLVM_CXXFLAGS=`${llvm_path}llvm-config --cxxflags`
   LDFLAGS="$LDFLAGS $LLVM_LDFLAGS"
-  CXXFLAGS="$CXXFLAGS -g $LLVM_CXXFLAGS"
+  CXXFLAGS="$CXXFLAGS $LLVM_CXXFLAGS"
 
   PHP_REQUIRE_CXX
   PHP_NEW_EXTENSION(phpllvm, $phpllvm_sources, $ext_shared)

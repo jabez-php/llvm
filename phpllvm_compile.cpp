@@ -122,8 +122,7 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 	BasicBlock* reposition = BasicBlock::Create("reposition", process_oparray);
 
 	BasicBlock **op_blocks;
-	op_blocks = (BasicBlock**) emalloc(
-		sizeof(BasicBlock*) * (op_array->last+1));
+	op_blocks = (BasicBlock**) safe_emalloc(op_array->last+1, sizeof(BasicBlock*), 0);
 	for (zend_uint i = 0; i < op_array->last; ++i) {
 		op_blocks[i] = BasicBlock::Create("op_block", process_oparray);
 	}
@@ -146,8 +145,6 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 
 	builder.CreateCondBr(no_exception, init, ret);
 
-	/* Populate the init block */
-	builder.SetInsertPoint(init);
 
 #ifdef ZTS
 # define CREATE_TSRMLS_CALL(f, arg) builder.CreateCall2(f, arg, tsrlm_ref)
@@ -155,37 +152,30 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 # define CREATE_TSRMLS_CALL(f, arg) builder.CreateCall(f, arg)
 #endif
 
+	/* Populate the init block */
+	builder.SetInsertPoint(init);
 	Value* stack_data = CREATE_TSRMLS_CALL(init_executor, op_array_ref);
-
 	builder.CreateBr(vm_enter);
 
 	/* Populate the vm_enter block */
 	builder.SetInsertPoint(vm_enter);
-
 	CREATE_TSRMLS_CALL(create_execute_data, stack_data);
-
 	int start = (op_array->start_op)? op_array->start_op - op_array->opcodes : 0;
 	builder.CreateBr(op_blocks[start]);
 
 	/* Populate the pre_vm_return block */
 	builder.SetInsertPoint(pre_vm_return_block);
-
 	CREATE_TSRMLS_CALL(pre_vm_return, stack_data);
-
 	builder.CreateRetVoid();
 
 	/* Populate the pre_vm_enter block */
 	builder.SetInsertPoint(pre_vm_enter_block);
-
 	CREATE_TSRMLS_CALL(pre_vm_enter, stack_data);
-
 	builder.CreateBr(vm_enter);
 
 	/* Populate the pre_vm_leave block */
 	builder.SetInsertPoint(pre_vm_leave_block);
-
 	CREATE_TSRMLS_CALL(pre_vm_leave, stack_data);
-
 	builder.CreateBr(reposition);
 
 	/* Populate the reposition block used to return to the
@@ -215,8 +205,9 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 			continue;
 		}
 
-#ifndef NDEBUG
+#ifdef DEBUG_PHPLLVM
 		// verify that execute_data->opline is set to i'th op_code
+		Function* verify_opline = mod->getFunction("phpllvm_verify_opline");
 		builder.CreateCall2(verify_opline, stack_data, ConstantInt::get(Type::Int32Ty, i));
 #endif
 
@@ -295,15 +286,12 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 			builder.CreateBr(op_blocks[el->cont]);
 
 		} else {
-
 			// proceed to next op_code unless the handler returned a non-zero result
 			SwitchInst* switch_ref = builder.CreateSwitch(result, op_blocks[i+1], 3);
 			switch_ref->addCase(ConstantInt::get(Type::Int32Ty, 1), pre_vm_return_block);
 			switch_ref->addCase(ConstantInt::get(Type::Int32Ty, 2), pre_vm_enter_block);
 			switch_ref->addCase(ConstantInt::get(Type::Int32Ty, 3), pre_vm_leave_block);
-
 		}
-
 	}
 
 	efree(op_blocks);

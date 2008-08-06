@@ -18,7 +18,7 @@
 */
 
 #ifndef PHP_PHPLLVM_H
-#define PHP_PHPLLVM_H 1
+#define PHP_PHPLLVM_H
 
 #ifdef ZTS
 #include "TSRM.h"

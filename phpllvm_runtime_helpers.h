@@ -47,7 +47,7 @@ void phpllvm_pre_vm_enter(execute_stack_data *stack_data TSRMLS_DC);
 
 void phpllvm_pre_vm_leave(execute_stack_data *stack_data TSRMLS_DC);
 
-#ifndef NDEBUG
+#ifdef DEBUG_PHPLLVM
 void phpllvm_verify_opline(execute_stack_data *stack_data, int i);
 #endif
 

@@ -12,3 +12,5 @@
     working directory with:
 
     $ llvm-dis -o - previous_execution.bc
+
+    To enable the debug mode, add "-DDEBUG_PHPLLVM" to both CFLAGS and CXXFLAGS

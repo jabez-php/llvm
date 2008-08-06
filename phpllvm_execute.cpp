@@ -54,11 +54,15 @@ static PassManager pass_manager;
 static void optimize_function(Function* function) {
 	pass_manager.run(*module);
 	opt_fpass_manager->run(*function);
+
+#ifdef DEBUG_PHPLLVM
+	verifyFunction(*function, AbortProcessAction);
+#endif
 }
 
 void phpllvm::save_module(const char* filename) {
-#ifndef NDEBUG
-	verifyModule(*module, PrintMessageAction);
+#ifdef DEBUG_PHPLLVM
+	verifyModule(*module, AbortProcessAction);
 #endif
 
 	std::filebuf fb;

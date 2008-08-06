@@ -31,7 +31,7 @@ struct _execute_stack_data {
 };
 
 int phpllvm_executor_exception_exists(TSRMLS_D) {
-#ifndef NDEBUG
+#ifdef DEBUG_PHPLLVM
 	if (EG(exception))
 		fprintf(stderr, "Zend engine exception exists.\n");
 #endif
@@ -117,9 +117,10 @@ int phpllvm_get_opline_number(execute_stack_data *stack_data) {
 	return stack_data->execute_data->opline - stack_data->execute_data->op_array->opcodes;
 }
 
-#ifndef NDEBUG
+#ifdef DEBUG_PHPLLVM
 void phpllvm_verify_opline(execute_stack_data *stack_data, int i) {
-	// fprintf(stderr, "veryifying zend engine has opline == %u...\n", i);
+	fprintf(stderr, "veryifying zend engine has opline == %u...\n", i);
+
 	if (stack_data->execute_data->opline != stack_data->execute_data->op_array->opcodes + i)
 		fprintf(stderr, "Zend engine has opline == %u, while we think it's %u\n", stack_data->execute_data->opline - stack_data->execute_data->op_array->opcodes, i);
 }
