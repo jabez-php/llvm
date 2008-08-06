@@ -79,7 +79,7 @@ int main(int argc, char **argv)
 
 	// transform global variables into an extern reference, so that the bitcode
 	// references the VM state and not its own vars
-	for (uint i = 0; i < sizeof(global_vars)/sizeof(global_vars); ++i) {
+	for (uint i = 0; i < sizeof(global_vars)/sizeof(*global_vars); ++i) {
 		GlobalVariable* GV = dynamic_cast<GlobalVariable*>(mod->getNamedGlobal(global_vars[i]));
 		GV->setInitializer(NULL); // remove 'zeroinitializer'
 		GV->setLinkage(GlobalValue::ExternalLinkage);
