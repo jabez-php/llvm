@@ -17,8 +17,8 @@
    +----------------------------------------------------------------------+
 */
 
-#ifndef LLVMCAHCE_RUNTIME_HELPERS_H
-#define LLVMCAHCE_RUNTIME_HELPERS_H
+#ifndef PHPLLVM_RUNTIME_HELPERS_H
+#define PHPLLVM_RUNTIME_HELPERS_H
 
 #ifdef __cplusplus
 extern "C" {
