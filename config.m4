@@ -1,8 +1,8 @@
-PHP_ARG_ENABLE(phpllvm, whether to enable LLVM based execution,
-[ --enable-phpllvm   Enable LLVM based execution])
+PHP_ARG_ENABLE(phpllvm, whether to enable LLVM based compiler,
+[  --enable-phpllvm        Enable LLVM based execution])
 
-PHP_ARG_WITH(llvm-bins, location of the llvm-config tool,
-[  --with-llvm-bins=DIR   Location of the llvm-config tool], no, no)
+PHP_ARG_WITH(llvm-bins, location of the LLVM binariesl,
+[  --with-llvm-bins=DIR    Location of the LLVM binaries], no, no)
 
 PHP_ARG_WITH(php-source, location of the PHP source code,
 [  --with-php-source=DIR   Location of the PHP source code], no, no)
