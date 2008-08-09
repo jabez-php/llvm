@@ -129,8 +129,14 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 	// avoid special cases in branching for the last opblock
 	op_blocks[op_array->last] = ret;
 
-	/* Populate the init block */
-	IRBuilder builder(entry);
+	// preserve names in the output only when in debug mode. otherwise speedup the process
+#ifdef DEBUG_PHPLLVM
+	IRBuilder<true> builder(entry);
+#else
+	IRBuilder<false> builder(entry);
+#endif
+
+	// Populate the init block
 
 	/* Return straightaway if EG(exception) is set */
 	Value* exception_exists = builder.CreateCall(

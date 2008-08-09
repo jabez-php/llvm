@@ -1,3 +1,6 @@
+0. Install LLVM and clang (or llvm-gcc). You need llvm from SVN trunk
+   (r54546 or newer).
+
 1. $ phpize
 
 2. $ ./configure --enable-phpllvm --with-php-source=/path/to/php/sources/
