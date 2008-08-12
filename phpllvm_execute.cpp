@@ -65,13 +65,10 @@ void phpllvm::save_module(const char* filename) {
 	verifyModule(*module, AbortProcessAction);
 #endif
 
-	std::filebuf fb;
-	fb.open(filename, std::ios::out);
-	std::ostream c_os(&fb);
-
-	WriteBitcodeToFile(module, c_os);
-
-	fb.close();
+	std::ofstream bc_os(filename, std::ios_base::out | std::ios_base::binary | std::ios_base::trunc);
+	if (!bc_os.fail()) {
+		WriteBitcodeToFile(module, bc_os);
+	}
 }
 
 void phpllvm::init_jit_engine(const char* filename TSRMLS_DC) {

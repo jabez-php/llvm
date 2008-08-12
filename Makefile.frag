@@ -25,3 +25,4 @@ $(builddir)/module_template.bc: $(builddir)/phpllvm_runtime_helpers.bc.o $(build
 	$(LLVM_LINK) $(builddir)/phpllvm_runtime_helpers.bc.o $(builddir)/zend_exceptions.bc.o $(builddir)/zend_execute.bc.o $(builddir)/zend_execute_API.bc.o $(builddir)/zend_compile.bc.o > $@
 	$(builddir)/preprocess_module_template $@
 	$(LLVM_OPT) -std-compile-opts -f $@ -o $@
+	$(builddir)/preprocess_module_template $@ 2
