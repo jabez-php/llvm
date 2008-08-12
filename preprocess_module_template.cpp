@@ -103,20 +103,19 @@ int main(int argc, char **argv)
 		}
 
 
-// NOTE: keep this #if in sync with zend.h
-#if defined(__GNUC__) && !defined(__INTEL_COMPILER) && !defined(DARWIN) && !defined(__hpux) && !defined(_AIX) && !defined(__osf__)
 		// alias zend_error_noreturn() to zend_error()
 		// this is needed because zend_error_noreturn() is defined in zend.c,
 		// which we don't currently compile to bitcode
-		Function *aliasee = mod->getFunction("zend_error");
-		GlobalAlias *alias = new GlobalAlias(aliasee->getType(), Function::ExternalLinkage, "zend_error_noreturn", aliasee, mod);
-		mod->getFunction("zend_error_noreturn")->replaceAllUsesWith(alias);
-		alias->takeName(mod->getFunction("zend_error_noreturn"));
-#endif
+		if (Function *aliasFn = mod->getFunction("zend_error_noreturn")) {
+			Function *aliasee = mod->getFunction("zend_error");
+			GlobalAlias *alias = new GlobalAlias(aliasee->getType(), Function::ExternalLinkage, "zend_error_noreturn", aliasee, mod);
+			aliasFn->replaceAllUsesWith(alias);
+			alias->takeName(mod->getFunction("zend_error_noreturn"));
+		}
 	}
 
-	/* Write out the module */
-	verifyModule(*mod, PrintMessageAction);
+	// Write out the module
+	verifyModule(*mod, AbortProcessAction);
 
 	std::ofstream bc_os(compile_file, std::ios_base::out | std::ios_base::binary | std::ios_base::trunc);
 	if (bc_os.fail()) {
