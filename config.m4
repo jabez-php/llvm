@@ -1,7 +1,7 @@
 PHP_ARG_ENABLE(phpllvm, whether to enable LLVM based compiler,
 [  --enable-phpllvm        Enable LLVM based execution])
 
-PHP_ARG_WITH(llvm-bins, location of the LLVM binariesl,
+PHP_ARG_WITH(llvm-bins, location of the LLVM binaries,
 [  --with-llvm-bins=DIR    Location of the LLVM binaries], no, no)
 
 PHP_ARG_WITH(php-source, location of the PHP source code,
@@ -48,8 +48,8 @@ if test "$PHP_PHPLLVM" = "yes"; then
   LDFLAGS="$LDFLAGS $LLVM_LDFLAGS"
   CXXFLAGS="$CXXFLAGS $LLVM_CXXFLAGS"
 
-  PHP_REQUIRE_CXX
-  PHP_NEW_EXTENSION(phpllvm, $phpllvm_sources, $ext_shared)
+  PHP_REQUIRE_CXX()
+  PHP_NEW_EXTENSION(phpllvm, $phpllvm_sources, $ext_shared,,, 1)
 
   PHP_ADD_MAKEFILE_FRAGMENT
 fi
