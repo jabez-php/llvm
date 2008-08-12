@@ -11,7 +11,7 @@ $(builddir)/phpllvm_runtime_helpers.bc.o: $(srcdir)/phpllvm_runtime_helpers.c
 	$(LLVM_CC) -emit-llvm $(COMMON_FLAGS) $(CFLAGS_CLEAN) $(EXTRA_CFLAGS) -c $< -o $@
 	$(LLVM_OPT) -std-compile-opts -f $@ -o $@
 
-%.bc.o: $(php_sources_path)/Zend/%.c
+%.bc.o: $(php_sources_path)/Zend/%.c $(builddir)/preprocess_module_template
 	$(LLVM_CC) -emit-llvm $(COMMON_FLAGS) $(CFLAGS_CLEAN) $(EXTRA_CFLAGS) -c $< -o $@
 	$(builddir)/preprocess_module_template $@
 	$(LLVM_OPT) -std-compile-opts -f $@ -o $@
