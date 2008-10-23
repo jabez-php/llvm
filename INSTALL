@@ -1,5 +1,5 @@
 0. Install LLVM and clang (or llvm-gcc). You need llvm from SVN trunk
-   (r54546 or newer).
+   (r57989 or newer).
 
 1. $ phpize
 
@@ -17,3 +17,8 @@
     $ llvm-dis -o - previous_execution.bc
 
     To enable the debug mode, add "-DDEBUG_PHPLLVM" to both CFLAGS and CXXFLAGS
+
+
+Note: if you use gcc >= 4.0 to compile PHP, you need to disable the -fvisibility option
+      by directly patching the configure script. We'll soon provide a configure option
+      to disable it without patching.
