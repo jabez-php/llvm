@@ -21,29 +21,24 @@
 #include "phpllvm_compile.h"
 
 #include <llvm/PassManager.h>
-#include <llvm/CallingConv.h>
-#include <llvm/Support/IRBuilder.h>
-
-#include "llvm/ModuleProvider.h"
+#include <llvm/ModuleProvider.h>
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
 #include <llvm/ExecutionEngine/GenericValue.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Bitcode/ReaderWriter.h>
 #include <llvm/Analysis/Verifier.h>
 #include <llvm/Assembly/PrintModulePass.h>
-
-#include "llvm/Target/TargetData.h"
-#include "llvm/Transforms/Scalar.h"
-#include "llvm/Transforms/IPO.h"
-
-#include <fstream>
+#include <llvm/Target/TargetData.h>
+#include <llvm/Transforms/Scalar.h>
+#include <llvm/Transforms/IPO.h>
+#include <llvm/Support/raw_ostream.h>
 
 using namespace llvm;
 using namespace phpllvm;
 
-/* pointer to the original Zend engine execute function */
+// pointer to the original Zend engine execute function
 typedef void (zend_execute_t)(zend_op_array *op_array TSRMLS_DC);
-static zend_execute_t *old_execute;
+static zend_execute_t *old_execute = NULL;
 
 static ExecutionEngine* engine;
 static Module* module;
@@ -65,31 +60,36 @@ void phpllvm::save_module(const char* filename) {
 	verifyModule(*module, AbortProcessAction);
 #endif
 
-	std::ofstream bc_os(filename, std::ios_base::out | std::ios_base::binary | std::ios_base::trunc);
-	if (!bc_os.fail()) {
-		WriteBitcodeToFile(module, bc_os);
+	std::string ErrorInfo;
+	raw_fd_ostream os(filename, ErrorInfo);
+
+	if (ErrorInfo.empty()) {
+		WriteBitcodeToFile(module, os);
 	}
 }
 
-void phpllvm::init_jit_engine(const char* filename TSRMLS_DC) {
+void phpllvm::init_jit_engine(const char* filename) {
 
-	if (!filename)
+	if (!filename) {
 		filename = "module_template.bc";
+	}
 
-	/* read in the template that includes the handlers */
+	// read in the template that includes the handlers
 	MemoryBuffer* buf;
 	std::string err;
 
-	if (!(buf = MemoryBuffer::getFile(filename, &err)))
+	if (!(buf = MemoryBuffer::getFile(filename, &err))) {
 		fprintf(stderr, "Couldn't read handlers file: %s", err.c_str());
+	}
 
-	if (!(module = ParseBitcodeFile(buf, &err)))
+	if (!(module = ParseBitcodeFile(buf, &err))) {
 		fprintf(stderr, "Couldn't parse handlers file: %s", err.c_str());
+	}
 
 	provider = new ExistingModuleProvider(module);
 	engine = ExecutionEngine::create(provider);
 
-	/* Force codegen of handlers. */
+	// Force codegen of handlers. this is a workaround for an LLVM bug in the JIT engine
 	for (Module::iterator I = module->begin(), E = module->end(); I != E; ++I) {
 		Function *Fn = &*I;
 		if (!Fn->isDeclaration() && Fn->getName().compare(0, 5, "ZEND_") == 0) {
@@ -98,44 +98,36 @@ void phpllvm::init_jit_engine(const char* filename TSRMLS_DC) {
 		}
 	}
 
-	/* Set up the optimization passes */
+	// Set up the optimization passes
 	opt_fpass_manager = new FunctionPassManager(provider);
 
 	opt_fpass_manager->add(new TargetData(*engine->getTargetData()));
 	pass_manager.add(new TargetData(*engine->getTargetData()));
 
 	// IPO optimizations
-	// Inline function calls.
 	pass_manager.add(createFunctionInliningPass());
 
 	// local optimizations
-	// Do simple "peephole" optimizations and bit-twiddling optzns.
 	opt_fpass_manager->add(createInstructionCombiningPass());
-	// Reassociate expressions.
 	opt_fpass_manager->add(createReassociatePass());
-	// Eliminate Common SubExpressions.
 	opt_fpass_manager->add(createGVNPass());
-	// Simplify the control flow graph (deleting unreachable blocks, etc).
 	opt_fpass_manager->add(createCFGSimplificationPass());
 }
 
-void phpllvm::destroy_jit_engine(TSRMLS_D) {
+void phpllvm::destroy_jit_engine() {
 	delete engine;
-	engine = NULL;
-	provider = NULL;
-
 	delete opt_fpass_manager;
-	opt_fpass_manager = NULL;
 }
 
-void phpllvm::override_executor(TSRMLS_D) {
+void phpllvm::override_executor() {
 	old_execute = zend_execute;
 	zend_execute = phpllvm::execute;
 }
 
-void phpllvm::restore_executor(TSRMLS_D) {
-	if (old_execute)
+void phpllvm::restore_executor() {
+	if (old_execute) {
 		zend_execute = old_execute;
+	}
 }
 
 void phpllvm::execute(zend_op_array *op_array TSRMLS_DC) {

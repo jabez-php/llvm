@@ -62,10 +62,10 @@ static PHP_MINIT_FUNCTION(phpllvm)
 
 	REGISTER_INI_ENTRIES();
 
-	init_jit_engine(NULL TSRMLS_CC);
+	init_jit_engine(NULL);
 
 	if (INI_BOOL("phpllvm.active"))
-		override_executor(TSRMLS_C);
+		override_executor();
 
 	return SUCCESS;
 }
@@ -74,12 +74,12 @@ static PHP_MINIT_FUNCTION(phpllvm)
 static PHP_MSHUTDOWN_FUNCTION(phpllvm)
 {
 	if (INI_BOOL("phpllvm.active"))
-		restore_executor(TSRMLS_C);
+		restore_executor();
 
 	UNREGISTER_INI_ENTRIES();
 
 	save_module(TEMP_FILE);
-	destroy_jit_engine(TSRMLS_C);
+	destroy_jit_engine();
 
 	return SUCCESS;
 }

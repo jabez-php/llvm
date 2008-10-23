@@ -305,6 +305,14 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 	return process_oparray;
 }
 
+
+static void add_padding(std::vector<Constant*> &v, unsigned bytes)
+{
+	for (unsigned i = 0; i < bytes; ++i) {
+		v.push_back(ConstantInt::get(Type::Int8Ty, 0));
+	}
+}
+
 static GlobalVariable* dump_class_entry(zend_class_entry* class_entry, Module* mod) {
 	const Type* class_entry_type = mod->getTypeByName(STRUCT("zend_class_entry"));
 
@@ -498,10 +506,7 @@ static GlobalVariable* dump_opcodes(zend_op* opcodes, int count, Module* mod, Ex
 		op_members.push_back(ConstantInt::get(Type::Int8Ty, opcodes[i].opcode));
 
 #ifdef COMPILED_WITH_CLANG
-		// clang adds some padding
-		for (uint i = 0; i < 3; ++i) {
-			op_members.push_back(ConstantInt::get(Type::Int8Ty, 0));
-		}
+		add_padding(op_members, 3);
 #endif
 
 		ops.push_back(ConstantStruct::get(op_type, op_members));
@@ -581,11 +586,12 @@ static GlobalVariable* dump_brk_cont_array(zend_brk_cont_element* elements, int 
 }
 
 static GlobalVariable* dump_try_catch_array(zend_try_catch_element* elements, int count, Module* mod) {
-	const StructType* try_catch_element_type = cast<const StructType>(mod->getTypeByName(STRUCT("zend_try_catch_element")));
+	const StructType* try_catch_element_type = cast<const StructType>(mod->getTypeByName(STRUCT("zend_label")));
+	const Type* uint_type = Type::Int32Ty; // TODO: adjust this automatically
 
 	std::vector<Constant*> members;
 
-	for(int i = 0; i < count; i++) {
+	for (int i = 0; i < count; ++i) {
 		// typedef struct _zend_try_catch_element {
 		// 	zend_uint try_op;
 		// 	zend_uint catch_op;  /* ketchup! */
@@ -594,8 +600,8 @@ static GlobalVariable* dump_try_catch_array(zend_try_catch_element* elements, in
 
 		std::vector<Constant*> element_members;
 
-		element_members.push_back(ConstantInt::get(Type::Int32Ty, elements[i].try_op));
-		element_members.push_back(ConstantInt::get(Type::Int32Ty, elements[i].catch_op));
+		element_members.push_back(ConstantInt::get(uint_type, elements[i].try_op));
+		element_members.push_back(ConstantInt::get(uint_type, elements[i].catch_op));
 
 		members.push_back(ConstantStruct::get(try_catch_element_type, element_members));
 	}
@@ -618,14 +624,15 @@ static GlobalVariable* dump_static_variables(HashTable* table, Module* mod) {
 
 static GlobalVariable* dump_op_array(zend_op_array* op_array, Module* mod, ExecutionEngine* engine) {
 	const StructType* op_array_type = cast<const StructType>(mod->getTypeByName(STRUCT("zend_op_array")));
-	const Type* class_entry_type = mod->getTypeByName(STRUCT("zend_class_entry"));
-	const Type* function_type = mod->getTypeByName(UNION("zend_function"));
 	const Type* arg_info_type = mod->getTypeByName(STRUCT("zend_arg_info"));
-	const Type* compiled_variable_type = mod->getTypeByName(STRUCT("zend_compiled_variable"));
 	const Type* brk_cont_element_type = mod->getTypeByName(STRUCT("zend_brk_cont_element"));
-	const Type* try_catch_element_type = mod->getTypeByName(STRUCT("zend_try_catch_element"));
-	const Type* hashtable_type = mod->getTypeByName(STRUCT("HashTable"));
+	const Type* class_entry_type = mod->getTypeByName(STRUCT("zend_class_entry"));
+	const Type* compiled_variable_type = mod->getTypeByName(STRUCT("zend_compiled_variable"));
+	const Type* function_type = mod->getTypeByName(UNION("zend_function"));
+	const Type* hashtable_type = mod->getTypeByName(STRUCT("hashtable"));
+	const Type* label_type = mod->getTypeByName(STRUCT("zend_label"));
 	const Type* op_type = mod->getTypeByName(STRUCT("zend_op"));
+	const Type* uint_type = Type::Int32Ty; // TODO: adjust this automatically
 
 	std::vector<Constant*> members;
 
@@ -633,42 +640,47 @@ static GlobalVariable* dump_op_array(zend_op_array* op_array, Module* mod, Execu
 
 	// zend_uchar type;
 	members.push_back(ConstantInt::get(Type::Int8Ty, op_array->type));
+	add_padding(members, 3);
 
 	// char *function_name;
 	if (op_array->function_name) {
 		Constant* string = ConstantArray::get(op_array->function_name);
 		GlobalVariable* var = new GlobalVariable(string->getType(), true, GlobalValue::InternalLinkage, string, "function_name", mod);
 		members.push_back(ConstantExpr::getGetElementPtr(var, &zero_indices[0], 2));
-	} else
+	} else {
 		members.push_back(ConstantPointerNull::get(PointerType::getUnqual(Type::Int8Ty)));
+	}
 
 	// zend_class_entry *scope;
-	if (op_array->scope)
+	if (op_array->scope) {
 		members.push_back(dump_class_entry(op_array->scope, mod));
-	else
+	} else {
 		members.push_back(ConstantPointerNull::get(PointerType::getUnqual(class_entry_type)));
+	}
 
 	// zend_uint fn_flags;
-	members.push_back(ConstantInt::get(Type::Int32Ty, op_array->fn_flags));
+	members.push_back(ConstantInt::get(uint_type, op_array->fn_flags));
 
 	// union _zend_function *prototype;
-	if (op_array->prototype)
+	if (op_array->prototype) {
 		members.push_back(dump_function(op_array->prototype, mod));
-	else
+	} else {
 		members.push_back(ConstantPointerNull::get(PointerType::getUnqual(function_type)));
+	}
 
 	// zend_uint num_args;
-	members.push_back(ConstantInt::get(Type::Int32Ty, op_array->num_args));
+	members.push_back(ConstantInt::get(uint_type, op_array->num_args));
 
 	// zend_uint required_num_args;
-	members.push_back(ConstantInt::get(Type::Int32Ty, op_array->num_args));
+	members.push_back(ConstantInt::get(uint_type, op_array->num_args));
 
 	// zend_arg_info *arg_info;
-	if (op_array->prototype) {
+	if (op_array->arg_info) {
 		GlobalVariable* var = dump_arg_info_array(op_array->arg_info, op_array->num_args, mod);
 		members.push_back(ConstantExpr::getGetElementPtr(var, &zero_indices[0], 2));
-	} else
+	} else {
 		members.push_back(ConstantPointerNull::get(PointerType::getUnqual(arg_info_type)));
+	}
 
 	// zend_bool pass_rest_by_reference;
 	members.push_back(ConstantInt::get(Type::Int8Ty, op_array->pass_rest_by_reference));
@@ -679,41 +691,46 @@ static GlobalVariable* dump_op_array(zend_op_array* op_array, Module* mod, Execu
 	// zend_bool done_pass_two;
 	members.push_back(ConstantInt::get(Type::Int8Ty, op_array->done_pass_two));
 
+	add_padding(members, 1);
+
 	// zend_uint *refcount;
-	if (op_array->function_name) {
-		GlobalVariable* var = new GlobalVariable(Type::Int32Ty, true, GlobalValue::InternalLinkage, ConstantInt::get(Type::Int32Ty, *op_array->refcount), "refcount", mod);
+	if (op_array->refcount) {
+		GlobalVariable* var = new GlobalVariable(uint_type, true, GlobalValue::InternalLinkage, ConstantInt::get(uint_type, *op_array->refcount), "refcount", mod);
 		members.push_back(var);
-	} else
-		members.push_back(ConstantPointerNull::get(PointerType::getUnqual(Type::Int32Ty)));
+	} else {
+		members.push_back(ConstantPointerNull::get(PointerType::getUnqual(uint_type)));
+	}
 
 	// zend_op *opcodes;
 	GlobalVariable* opcodes = dump_opcodes(op_array->opcodes, op_array->last, mod, engine);
 	members.push_back(opcodes);
 
 	// zend_uint last, size;
-	members.push_back(ConstantInt::get(Type::Int32Ty, op_array->last));
-	members.push_back(ConstantInt::get(Type::Int32Ty, op_array->last)); // not "size" intentionally
+	members.push_back(ConstantInt::get(uint_type, op_array->last));
+	members.push_back(ConstantInt::get(uint_type, op_array->last)); // not "size" intentionally
 
 	// zend_compiled_variable *vars;
 	if (op_array->vars) {
 		GlobalVariable* var = dump_compiled_vars(op_array->vars, op_array->last_var, mod);
 		members.push_back(ConstantExpr::getGetElementPtr(var, &zero_indices[0], 2));
-	} else
+	} else {
 		members.push_back(ConstantPointerNull::get(PointerType::getUnqual(compiled_variable_type)));
+	}
 
 	// int last_var, size_var;
 	members.push_back(ConstantInt::get(Type::Int32Ty, op_array->last_var));
 	members.push_back(ConstantInt::get(Type::Int32Ty, op_array->size_var));
 
 	// zend_uint T;
-	members.push_back(ConstantInt::get(Type::Int32Ty, op_array->T));
+	members.push_back(ConstantInt::get(uint_type, op_array->T));
 
 	// zend_brk_cont_element *brk_cont_array;
 	if (op_array->brk_cont_array) {
 		GlobalVariable* var = dump_brk_cont_array(op_array->brk_cont_array, op_array->last_brk_cont, mod);
 		members.push_back(ConstantExpr::getGetElementPtr(var, &zero_indices[0], 2));
-	} else
+	} else {
 		members.push_back(ConstantPointerNull::get(PointerType::getUnqual(brk_cont_element_type)));
+	}
 
 	// int last_brk_cont;
 	members.push_back(ConstantInt::get(Type::Int32Ty, op_array->last_brk_cont));
@@ -721,11 +738,13 @@ static GlobalVariable* dump_op_array(zend_op_array* op_array, Module* mod, Execu
 	// int current_brk_cont;
 	members.push_back(ConstantInt::get(Type::Int32Ty, op_array->current_brk_cont));
 
+	// zend_try_catch_element *try_catch_array;
 	if (op_array->try_catch_array) {
 		GlobalVariable* var = dump_try_catch_array(op_array->try_catch_array, op_array->last_try_catch, mod);
 		members.push_back(ConstantExpr::getGetElementPtr(var, &zero_indices[0], 2));
-	} else
-		members.push_back(ConstantPointerNull::get(PointerType::getUnqual(try_catch_element_type)));
+	} else {
+		members.push_back(ConstantPointerNull::get(PointerType::getUnqual(label_type)));
+	}
 
 	// int last_try_catch;
 	members.push_back(ConstantInt::get(Type::Int32Ty, op_array->last_try_catch));
@@ -741,47 +760,50 @@ static GlobalVariable* dump_op_array(zend_op_array* op_array, Module* mod, Execu
 		indices.push_back(ConstantInt::get(Type::Int32Ty, 0));
 		indices.push_back(ConstantInt::get(Type::Int32Ty, start));
 		members.push_back(ConstantExpr::getGetElementPtr(opcodes, &indices[0], 2));
-	} else
+	} else {
 		members.push_back(ConstantPointerNull::get(PointerType::getUnqual(op_type)));
+	}
 
 	// int backpatch_count;
 	members.push_back(ConstantInt::get(Type::Int32Ty, op_array->backpatch_count));
 
 	// zend_uint this_var;
-	members.push_back(ConstantInt::get(Type::Int32Ty, op_array->this_var));
+	members.push_back(ConstantInt::get(uint_type, op_array->this_var));
 
 	// char *filename;
 	if (op_array->filename) {
 		Constant* string = ConstantArray::get(op_array->filename);
 		GlobalVariable* var = new GlobalVariable(string->getType(), true, GlobalValue::InternalLinkage, string, "filename", mod);
 		members.push_back(ConstantExpr::getGetElementPtr(var, &zero_indices[0], 2));
-	} else
+	} else {
 		members.push_back(ConstantPointerNull::get(PointerType::getUnqual(Type::Int8Ty)));
+	}
 
 	// zend_uint line_start;
-	members.push_back(ConstantInt::get(Type::Int32Ty, op_array->line_start));
+	members.push_back(ConstantInt::get(uint_type, op_array->line_start));
 
 	// zend_uint line_end;
-	members.push_back(ConstantInt::get(Type::Int32Ty, op_array->line_end));
+	members.push_back(ConstantInt::get(uint_type, op_array->line_end));
 
 	// char *doc_comment;
 	if (op_array->doc_comment) {
 		Constant* string = ConstantArray::get(op_array->doc_comment);
 		GlobalVariable* var = new GlobalVariable(string->getType(), true, GlobalValue::InternalLinkage, string, "doc_comment", mod);
 		members.push_back(ConstantExpr::getGetElementPtr(var, &zero_indices[0], 2));
-	} else
+	} else {
 		members.push_back(ConstantPointerNull::get(PointerType::getUnqual(Type::Int8Ty)));
+	}
 
 	// zend_uint doc_comment_len;
-	members.push_back(ConstantInt::get(Type::Int32Ty, op_array->doc_comment_len));
+	members.push_back(ConstantInt::get(uint_type, op_array->doc_comment_len));
 
 	// zend_uint early_binding; /* the linked list of delayed declarations */
-	members.push_back(ConstantInt::get(Type::Int32Ty, op_array->early_binding));
+	members.push_back(ConstantInt::get(uint_type, op_array->early_binding));
 
 	// void *reserved[ZEND_MAX_RESERVED_RESOURCES];
 	const ArrayType *ptr_array_type = ArrayType::get(PointerType::getUnqual(Type::Int8Ty), ZEND_MAX_RESERVED_RESOURCES);
 	std::vector<Constant*> vals;
-	for(int i = 0; op_array->reserved[i] && i < ZEND_MAX_RESERVED_RESOURCES; i++) {
+	for(unsigned i = 0; op_array->reserved[i] && i < ZEND_MAX_RESERVED_RESOURCES; i++) {
 		// TODO: Do these need to be deep copied?
 		GlobalVariable* var = new GlobalVariable(Type::Int8Ty, true, GlobalValue::InternalLinkage, ConstantInt::get(Type::Int8Ty, (uint64_t) op_array->reserved[i]), "reserved_ptr", mod);
 		vals.push_back(var);
