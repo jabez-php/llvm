@@ -61,7 +61,7 @@ void phpllvm::save_module(const char* filename) {
 #endif
 
 	std::string ErrorInfo;
-	raw_fd_ostream os(filename, ErrorInfo);
+	raw_fd_ostream os(filename, true, ErrorInfo);
 
 	if (ErrorInfo.empty()) {
 		WriteBitcodeToFile(module, os);

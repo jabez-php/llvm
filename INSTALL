@@ -1,5 +1,5 @@
 0. Install LLVM and clang (or llvm-gcc). You need llvm from SVN trunk
-   (r57989 or newer).
+   (r59219 or newer).
 
 1. $ phpize
 
