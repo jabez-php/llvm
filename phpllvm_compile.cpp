@@ -269,11 +269,10 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 			}
 
 			// check which line the engine wants to continue on (target1 or target2)
-			Value* current_op_number = builder.CreateCall(get_opline_number, stack_data, "current");
-
-			SwitchInst* switch_ref = builder.CreateSwitch(current_op_number, ret, 2);
-			switch_ref->addCase(ConstantInt::get(Type::Int32Ty, target1), op_blocks[target1]);
-			switch_ref->addCase(ConstantInt::get(Type::Int32Ty, target2), op_blocks[target2]);
+			// TODO: add assert in debug mode to check if get_opline_number() returned target1 or target2
+			Value* op_number = builder.CreateCall(get_opline_number, stack_data, "target");
+			Value *cond = builder.CreateICmpEQ(op_number, ConstantInt::get(Type::Int32Ty, target1));
+			builder.CreateCondBr(cond, op_blocks[target1], op_blocks[target2]);
 
 		} else if (op->opcode == ZEND_BRK) {
 
