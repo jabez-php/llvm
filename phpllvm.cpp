@@ -103,7 +103,7 @@ static PHP_MINFO_FUNCTION(phpllvm)
 	DISPLAY_INI_ENTRIES();
 }
 
-static function_entry phpllvm_functions[] = {
+static zend_function_entry phpllvm_functions[] = {
 	{NULL, NULL, NULL}
 };
 
