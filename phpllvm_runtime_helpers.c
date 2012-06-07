@@ -72,9 +72,12 @@ void phpllvm_create_execute_data(execute_stack_data *stack_data TSRMLS_DC) {
 	EX(nested) = stack_data->nested;
 	stack_data->nested = 1;
 
+#if PHP_VERSION_ID < 50400
 	if (stack_data->op_array->start_op) {
 		stack_data->execute_data->opline = stack_data->op_array->start_op;
-	} else {
+	} else 
+#endif
+	{
 		stack_data->execute_data->opline = stack_data->op_array->opcodes;
 	}
 
@@ -143,13 +146,21 @@ void phpllvm_fix_jumps(zend_op_array *op_array, zend_op* orig_first) {
 		/*Note: We need to update the "absolute" jump addresses that are not given as offsets from the first op. */
 		switch (zo->opcode) {
 			case ZEND_JMP:
+#if PHP_VERSION_ID >= 50400
+				zo->op1.jmp_addr = op_array->opcodes + (zo->op1.jmp_addr - orig_first);
+#else
 				zo->op1.u.jmp_addr = op_array->opcodes + (zo->op1.u.jmp_addr - orig_first);
+#endif
 				break;
 			case ZEND_JMPZ:
 			case ZEND_JMPNZ:
 			case ZEND_JMPZ_EX:
 			case ZEND_JMPNZ_EX:
+#if PHP_VERSION_ID >= 50400
+				zo->op2.jmp_addr = op_array->opcodes + (zo->op2.jmp_addr - orig_first);
+#else
 				zo->op2.u.jmp_addr = op_array->opcodes + (zo->op2.u.jmp_addr - orig_first);
+#endif
 				break;
 			default:
 				break;
