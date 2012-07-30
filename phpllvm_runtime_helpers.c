@@ -19,6 +19,9 @@
 
 #include "phpllvm_runtime_helpers.h"
 #include <zend_execute.h>
+#include <zend_vm.h>
+
+void zend_init_opcodes_handlers(void);
 
 #undef EX
 #define EX(element) stack_data->execute_data->element
@@ -30,24 +33,18 @@ struct _execute_stack_data {
 	zend_bool original_in_execution;
 };
 
-int phpllvm_executor_exception_exists(TSRMLS_D) {
-#ifdef DEBUG_PHPLLVM
-	if (EG(exception))
-		fprintf(stderr, "Zend engine exception exists.\n");
-#endif
-	return EG(exception) != 0;
+zval ** phpllvm_get_exception_pp(TSRMLS_D) {
+	return &EG(exception);
 }
 
-execute_stack_data *phpllvm_init_executor(zend_op_array *op_array TSRMLS_DC) {
-	execute_stack_data *stack_data = emalloc(sizeof(execute_stack_data));
+void phpllvm_init_executor(execute_stack_data * stack_data, zend_op_array *op_array TSRMLS_DC) 
+{
 	stack_data->execute_data = NULL;
 	stack_data->op_array = op_array;
 	stack_data->nested = 0;
 	stack_data->original_in_execution = EG(in_execution);
 
 	EG(in_execution) = 1;
-
-	return stack_data;
 }
 
 void phpllvm_create_execute_data(execute_stack_data *stack_data TSRMLS_DC) {
@@ -71,6 +68,12 @@ void phpllvm_create_execute_data(execute_stack_data *stack_data TSRMLS_DC) {
 	EG(current_execute_data) = stack_data->execute_data;
 	EX(nested) = stack_data->nested;
 	stack_data->nested = 1;
+
+#if PHP_VERSION_ID >= 50400
+	if (!stack_data->op_array->run_time_cache && stack_data->op_array->last_cache_slot) {
+		stack_data->op_array->run_time_cache = ecalloc(stack_data->op_array->last_cache_slot, sizeof(void*));
+	}
+#endif	
 
 #if PHP_VERSION_ID < 50400
 	if (stack_data->op_array->start_op) {
@@ -105,7 +108,6 @@ zend_execute_data *phpllvm_get_execute_data(execute_stack_data *stack_data) {
 
 void phpllvm_pre_vm_return(execute_stack_data *stack_data TSRMLS_DC) {
 	EG(in_execution) = stack_data->original_in_execution;
-	efree(stack_data);
 }
 
 void phpllvm_pre_vm_enter(execute_stack_data *stack_data TSRMLS_DC) {
@@ -166,4 +168,8 @@ void phpllvm_fix_jumps(zend_op_array *op_array, zend_op* orig_first) {
 				break;
 		}
 	}
+}
+
+void phpllvm_handle_invalid_reposition(execute_stack_data *stack_data TSRMLS_DC) {
+	php_error(E_ERROR, "phpllvm: An op handler requested an unexpected jump action, execution aborted");
 }

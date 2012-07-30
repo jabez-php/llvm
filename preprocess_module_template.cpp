@@ -24,6 +24,9 @@
 #include <llvm/Bitcode/ReaderWriter.h>
 #include <llvm/Analysis/Verifier.h>
 #include <llvm/Assembly/PrintModulePass.h>
+#include <llvm/Support/system_error.h>
+#include <llvm/LLVMContext.h>
+#include <llvm/Support/raw_ostream.h>
 
 #include <fstream>
 #include <stdlib.h>
@@ -47,17 +50,23 @@ int main(int argc, char **argv)
 	const char* compile_file = (argc >= 2) ? argv[1] : "module_template.bc";
 	int pass = (argc >= 3) ? atoi(argv[2]) : 1;
 
-	/* Read the module. */
-	MemoryBuffer* buf;
-	std::string err;
+	OwningPtr<MemoryBuffer> buf;
+	error_code code;
+	std::string message;
+	LLVMContext & context = getGlobalContext();
 
-	if (!(buf = MemoryBuffer::getFile(compile_file, &err))) {
-		fprintf(stderr, "Couldn't read the '%s' file: %s\n", compile_file, err.c_str());
+	/* Read the module. */
+
+	code = MemoryBuffer::getFile(compile_file, buf);
+	if (code) {
+		fprintf(stderr, "Couldn't read the '%s' file: %s\n", 
+			compile_file, code.message().c_str());
 		return -1;
 	}
 
-	if (!(mod = ParseBitcodeFile(buf, &err))) {
-		fprintf(stderr, "Couldn't parse the '%s' file: %s\n", compile_file, err.c_str());
+	if (!(mod = ParseBitcodeFile(buf.get(), context, &message))) {
+		fprintf(stderr, "Couldn't parse the '%s' file: %s\n", 
+			compile_file, message.c_str());
 		return -1;
 	}
 
@@ -117,9 +126,10 @@ int main(int argc, char **argv)
 	// Write out the module
 	verifyModule(*mod, AbortProcessAction);
 
-	std::ofstream bc_os(compile_file, std::ios_base::out | std::ios_base::binary | std::ios_base::trunc);
-	if (bc_os.fail()) {
-		fprintf(stderr, "failed opening %s for writing the bitcode\n", compile_file);
+	raw_fd_ostream bc_os(compile_file, message);
+	if (message.size() != 0) {
+		fprintf(stderr, "failed opening %s for writing the bitcode: %s\n", 
+			compile_file, message.c_str());
 		return 1;
 	}
 

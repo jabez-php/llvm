@@ -32,20 +32,15 @@ typedef void (zend_execute_t)(zend_op_array *op_array TSRMLS_DC);
  	stack. It's just more convinient to wrap it up in one struct. */
 typedef struct _execute_stack_data execute_stack_data;
 
+zval ** phpllvm_get_exception_pp(TSRMLS_D);
 
-int phpllvm_executor_exception_exists(TSRMLS_D);
-
-execute_stack_data *phpllvm_init_executor(zend_op_array *op_array TSRMLS_DC);
+void phpllvm_init_executor(execute_stack_data * stack_data, zend_op_array *op_array TSRMLS_DC);
 
 void phpllvm_create_execute_data(execute_stack_data *stack_data TSRMLS_DC);
 
 zend_execute_data *phpllvm_get_execute_data(execute_stack_data *stack_data);
 
 void phpllvm_pre_vm_return(execute_stack_data *stack_data TSRMLS_DC);
-
-void phpllvm_pre_vm_enter(execute_stack_data *stack_data TSRMLS_DC);
-
-void phpllvm_pre_vm_leave(execute_stack_data *stack_data TSRMLS_DC);
 
 #ifdef DEBUG_PHPLLVM
 void phpllvm_verify_opline(execute_stack_data *stack_data, int i);
@@ -54,6 +49,8 @@ void phpllvm_verify_opline(execute_stack_data *stack_data, int i);
 int phpllvm_get_opline_number(execute_stack_data *stack_data);
 
 opcode_handler_t phpllvm_get_opcode_handler(zend_op* op);
+
+void phpllvm_handle_invalid_reposition(execute_stack_data *stack_data TSRMLS_DC);
 
 #ifdef __cplusplus
 }

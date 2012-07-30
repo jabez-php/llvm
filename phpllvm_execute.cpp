@@ -20,8 +20,10 @@
 #include "phpllvm_execute.h"
 #include "phpllvm_compile.h"
 
+#include <map>
+#include <utility>
+
 #include <llvm/PassManager.h>
-#include <llvm/ModuleProvider.h>
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
 #include <llvm/ExecutionEngine/GenericValue.h>
 #include <llvm/Support/MemoryBuffer.h>
@@ -29,9 +31,18 @@
 #include <llvm/Analysis/Verifier.h>
 #include <llvm/Assembly/PrintModulePass.h>
 #include <llvm/Target/TargetData.h>
+#include <llvm/Target/TargetOptions.h>
 #include <llvm/Transforms/Scalar.h>
 #include <llvm/Transforms/IPO.h>
 #include <llvm/Support/raw_ostream.h>
+#include <llvm/Support/system_error.h>
+#include <llvm/LLVMContext.h>
+#include <llvm/Support/TargetSelect.h>
+#include <llvm/Support/MutexGuard.h>
+
+// Including this header magically makes the JIT be linked in and register 
+// itself at startup.
+#include <llvm/ExecutionEngine/JIT.h>
 
 using namespace llvm;
 using namespace phpllvm;
@@ -40,19 +51,20 @@ using namespace phpllvm;
 typedef void (zend_execute_t)(zend_op_array *op_array TSRMLS_DC);
 static zend_execute_t *old_execute = NULL;
 
+std::map<void*, Function*> op_handlers;
+
 static ExecutionEngine* engine;
 static Module* module;
-static ModuleProvider* provider;
 static FunctionPassManager* opt_fpass_manager;
 static PassManager pass_manager;
 
 static void optimize_function(Function* function) {
-	pass_manager.run(*module);
-	opt_fpass_manager->run(*function);
-
-#ifdef DEBUG_PHPLLVM
 	verifyFunction(*function, AbortProcessAction);
+
+#ifdef SLOW
+	pass_manager.run(*module);
 #endif
+	opt_fpass_manager->run(*function);
 }
 
 void phpllvm::save_module(const char* filename) {
@@ -61,7 +73,7 @@ void phpllvm::save_module(const char* filename) {
 #endif
 
 	std::string ErrorInfo;
-	raw_fd_ostream os(filename, true, ErrorInfo);
+	raw_fd_ostream os(filename, ErrorInfo);
 
 	if (ErrorInfo.empty()) {
 		WriteBitcodeToFile(module, os);
@@ -69,43 +81,63 @@ void phpllvm::save_module(const char* filename) {
 }
 
 void phpllvm::init_jit_engine(const char* filename) {
+    InitializeNativeTarget();
 
 	if (!filename) {
 		filename = "module_template.bc";
 	}
 
 	// read in the template that includes the handlers
-	MemoryBuffer* buf;
-	std::string err;
+	OwningPtr<MemoryBuffer> buf;
+	error_code code;
+	std::string message;
+	LLVMContext & context = getGlobalContext();
 
-	if (!(buf = MemoryBuffer::getFile(filename, &err))) {
-		fprintf(stderr, "Couldn't read handlers file: %s", err.c_str());
+	code = MemoryBuffer::getFile(filename, buf);
+	if (code) {
+		zend_error_noreturn(E_ERROR, "phpllvm: couldn't read handlers file: %s", code.message().c_str());
 	}
 
-	if (!(module = ParseBitcodeFile(buf, &err))) {
-		fprintf(stderr, "Couldn't parse handlers file: %s", err.c_str());
+	if (!(module = ParseBitcodeFile(buf.get(), context, &message))) {
+		zend_error_noreturn(E_ERROR, "phpllvm: couldn't parse handlers file: %s\n", message.c_str());
 	}
 
-	provider = new ExistingModuleProvider(module);
-	engine = ExecutionEngine::create(provider);
+	EngineBuilder builder(module);
+
+	// Disable frame pointer elimination
+	TargetOptions opts;
+	opts.NoFramePointerElim = true;
+	builder.setTargetOptions(opts);
+
+	builder.setEngineKind(EngineKind::JIT);
+	builder.setErrorStr(&message);
+	engine = builder.create();
+	if (!engine) {
+		zend_error_noreturn(E_ERROR, "phpllvm: could not create handlers module: %s\n", message.c_str());
+	}
 
 	// Force codegen of handlers. this is a workaround for an LLVM bug in the JIT engine
 	for (Module::iterator I = module->begin(), E = module->end(); I != E; ++I) {
 		Function *Fn = &*I;
-		if (!Fn->isDeclaration() && Fn->getName().compare(0, 5, "ZEND_") == 0) {
-			// fprintf(stderr, "Generating: %s\n", Fn->getName().c_str());
-			engine->getPointerToFunction(Fn);
+		if (!Fn->isDeclaration() && Fn->getName().startswith("ZEND_")) {
+			void * ptr = engine->getPointerToFunction(Fn);
+			op_handlers.insert(std::make_pair(ptr, Fn));
 		}
 	}
 
 	// Set up the optimization passes
-	opt_fpass_manager = new FunctionPassManager(provider);
+	opt_fpass_manager = new FunctionPassManager(module);
 
 	opt_fpass_manager->add(new TargetData(*engine->getTargetData()));
 	pass_manager.add(new TargetData(*engine->getTargetData()));
 
 	// IPO optimizations
+
+	// Inline small opcode handlers and helper functions
 	pass_manager.add(createFunctionInliningPass());
+	// Run an IPO constant propagation pass. This removes a lot of the 
+	// branching on opcode handler return values.
+	pass_manager.add(createIPSCCPPass());
 
 	// local optimizations
 	opt_fpass_manager->add(createInstructionCombiningPass());
@@ -132,6 +164,18 @@ void phpllvm::restore_executor() {
 
 void phpllvm::execute(zend_op_array *op_array TSRMLS_DC) {
 
+#if PHP_VERSION_ID >= 50400
+	if (EG(start_op))
+#else
+	if (op_array->start_op)
+#endif
+	{
+		// This does not appear to be reachable, ext/readline just gives us interactive
+		// op arrays in small compilable fragments, it doesn't append to the old one
+		php_error(E_WARNING, "phpllvm: cannot execute interactive code");
+		return;
+	}
+
 	/* Get/create the compiled function */
 
 	char* name;
@@ -146,11 +190,17 @@ void phpllvm::execute(zend_op_array *op_array TSRMLS_DC) {
 		function = NULL;
 
 	} else {
+#if PHP_API_VERSION >= 20100412
+		int start = 0;
+#else
+		int start = (op_array->start_op)? op_array->start_op - op_array->opcodes : 0;
+#endif
+		
 		spprintf(&name, 0, "%s__c__%s__f__%s__s__%u",
 			(op_array->filename)? op_array->filename : "",
 			(op_array->scope)? op_array->scope->name : "",
 			(op_array->function_name)? op_array->function_name : "",
-			(op_array->start_op)? op_array->start_op - op_array->opcodes : 0);
+			start);
 
 		cache = true;
 		function = module->getFunction(name);
@@ -164,20 +214,21 @@ void phpllvm::execute(zend_op_array *op_array TSRMLS_DC) {
 			/* Note that we can't even call old_execute because the template includes globals
 			 	that are duplicates of the original executor's globals. Hence we can either
 				use only old_execute or our execute. */
-			zend_error_noreturn(E_ERROR, "Couldn't compile LLVM Function for %s.\n", name);
+			zend_error_noreturn(E_ERROR, "phpllvm: couldn't compile function %s.\n", name);
 		}
 
 		optimize_function(function);
 	}
-	// else fprintf(stderr, "cache hit: %s\n", name);
 
-	// fprintf(stderr, "executing %s\n", name);
 	efree(name);
 
 	/* Call the compiled function */
 	std::vector<GenericValue> args;
 	GenericValue val;
 
+	// Pass a dummy integer argument so that we can hit a "common case" in JIT.cpp 
+	// and avoid code generation
+	args.push_back(val);
 	val.PointerVal = op_array;
 	args.push_back(val);
 

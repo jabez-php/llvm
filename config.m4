@@ -22,7 +22,7 @@ if test "$PHP_PHPLLVM" = "yes"; then
   fi
   PHP_SUBST(llvm_bins_path)
 
-  AC_PATH_PROG(PROG_CLANG, ccc,[], $PATH:$llvm_bins_path)
+  AC_PATH_PROG(PROG_CLANG, clang,[], $PATH:$llvm_bins_path)
   dnl give preference to clang over llvm-gcc
   if test "$PROG_CLANG" != ""; then
     LLVM_CC=$PROG_CLANG
@@ -30,7 +30,7 @@ if test "$PHP_PHPLLVM" = "yes"; then
   else
     AC_PATH_PROG(PROG_LLVM_GCC, llvm-gcc,[], $PATH:$llvm_bins_path)
     if test "$PROG_LLVM_GCC," = ""; then
-      AC_MSG_ERROR([Neither clang (ccc) nor llvm-gcc were found])
+      AC_MSG_ERROR([Neither clang nor llvm-gcc were found])
     fi
     LLVM_CC=$PROG_LLVM_GCC
   fi
@@ -43,8 +43,8 @@ if test "$PHP_PHPLLVM" = "yes"; then
   PHP_SUBST(php_sources_path)
 
   dnl Link LLVM libraries:
-  LLVM_LDFLAGS=`${llvm_path}llvm-config --ldflags --libs core jit native bitwriter bitreader scalaropts ipo target analysis executionengine support`
-  LLVM_CXXFLAGS=`${llvm_path}llvm-config --cxxflags`
+  LLVM_LDFLAGS=`${llvm_bins_path}llvm-config --ldflags --libs core jit native bitwriter bitreader scalaropts ipo target analysis executionengine support`
+  LLVM_CXXFLAGS=`${llvm_bins_path}llvm-config --cxxflags`
   LDFLAGS="$LDFLAGS $LLVM_LDFLAGS"
   CXXFLAGS="$CXXFLAGS $LLVM_CXXFLAGS"
 
