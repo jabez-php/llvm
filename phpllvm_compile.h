@@ -2,7 +2,7 @@
    +----------------------------------------------------------------------+
    | PHP LLVM extension                                                   |
    +----------------------------------------------------------------------+
-   | Copyright (c) 2008 The PHP Group                                     |
+   | Copyright (c) 2008-2012 The PHP Group                                |
    +----------------------------------------------------------------------+
    | This source file is subject to version 3.01 of the PHP license,      |
    | that is bundled with this package in the file LICENSE, and is        |
@@ -24,9 +24,11 @@ extern "C" {
 #include "php.h"
 }
 
-#include <llvm/Module.h>
-#include <llvm/Function.h>
-#include <llvm/ExecutionEngine/ExecutionEngine.h>
+namespace llvm {
+	class ExecutionEngine;
+	class Function;
+	class Module;
+};
 
 using namespace llvm;
 

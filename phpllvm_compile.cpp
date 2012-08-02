@@ -2,7 +2,7 @@
    +----------------------------------------------------------------------+
    | PHP LLVM extension                                                   |
    +----------------------------------------------------------------------+
-   | Copyright (c) 2008 The PHP Group                                     |
+   | Copyright (c) 2008-2012 The PHP Group                                |
    +----------------------------------------------------------------------+
    | This source file is subject to version 3.01 of the PHP license,      |
    | that is bundled with this package in the file LICENSE, and is        |
@@ -20,48 +20,22 @@
 #include "phpllvm_compile.h"
 #include "phpllvm_execute.h"
 
-#include <llvm/Module.h>
-#include <llvm/Function.h>
-#include <llvm/CallingConv.h>
-#include <llvm/Support/TypeBuilder.h>
-#include <llvm/Support/Casting.h>
 #include <llvm/Analysis/Verifier.h>
-
-
-#include <vector>
-
-// TODO: define this in config.m4 for llvm>=3.1
-#ifdef HAVE_IRBUILDER_IN_ROOT
-#include <llvm/IRBuilder.h>
-#else
-#include <llvm/Support/IRBuilder.h>
-#endif
-
+#include <llvm/ExecutionEngine/ExecutionEngine.h>
 #include <llvm/ExecutionEngine/GenericValue.h>
-#include <llvm/LLVMContext.h>
+#include <llvm/Function.h>
+#include <llvm/IRBuilder.h>
+#include <llvm/Module.h>
 
 using namespace llvm;
 using namespace phpllvm;
 
-// currently type names are different when compiled with clang or llvm-gcc
-#ifdef COMPILED_WITH_CLANG
-# define STRUCT(s) "struct._" s
-# define UNION(s) "union._" s
-#else
-# define STRUCT(s) "struct." s
-# define UNION(s) "struct." s
-#endif
+#define STRUCT(s) "struct._" s
+#define UNION(s) "union._" s
 
-// Abstraction for the change in znode_op in PHP 5.4
-#if PHP_API_VERSION >= 20100412
 #define ZNODE_OPLINE_NUM(zn) ((zn).opline_num)
 #define ZNODE_JMP_ADDR(zn) ((zn).jmp_addr)
 #define ZNODE_CONSTANT_ADDR(zn) ((zn).zv)
-#else
-#define ZNODE_OPLINE_NUM(zn) ((zn).u.opline_num)
-#define ZNODE_JMP_ADDR(zn) ((zn).u.jmp_addr)
-#define ZNODE_CONSTANT_ADDR(zn) (&(zn).constant)
-#endif
 
 extern std::map<void*, Function*> op_handlers;
 
@@ -69,8 +43,6 @@ static CallInst * make_handler_call(ExecutionEngine * engine, zend_op * op,
 		BasicBlock * insert_at_end, Value * execute_data, Function * get_handler, Value * tsrlm_ref);
 
 static Function * get_function(Module * mod, const char * name TSRMLS_DC);
-
-//static GlobalVariable* dump_op_array(zend_op_array* val, Module* mod, ExecutionEngine* engine);
 
 // from: static inline zend_brk_cont_element* zend_brk_cont(zval *nest_levels_zval, int array_offset, zend_op_array *op_array, temp_variable *Ts TSRMLS_DC)   [zend_execute.cpp]
 static zend_brk_cont_element* get_brk_cont_target(zval *nest_levels_zval, int array_offset, zend_op_array *op_array, temp_variable *Ts TSRMLS_DC) {
@@ -112,9 +84,8 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 	Function* get_execute_data = get_function(mod, "phpllvm_get_execute_data");
 	Function* get_opline_number = get_function(mod, "phpllvm_get_opline_number");
 	Function* get_handler = get_function(mod, "phpllvm_get_opcode_handler");
-	Function* handle_invalid_reposition = get_function(mod, "phpllvm_handle_invalid_reposition");
 
-	LLVMContext & context = getGlobalContext();
+	LLVMContext &context = mod->getContext();
 	IntegerType* int32ty = Type::getInt32Ty(context);
 
 	Type* op_array_type = PointerType::getUnqual(mod->getTypeByName(STRUCT("zend_op_array")));
@@ -126,7 +97,6 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 	/* Define the main function for the op_array (fn_name)
 		Takes op_array* and TSRMLS_D as arguments. */
 	std::vector<Type*> arg_types;
-	arg_types.push_back(int32ty); // dummy
 	arg_types.push_back(op_array_type);
 #ifdef ZTS
 	const Type* tsrmls_type = init_executor->getFunctionType()->getParamType(1);
@@ -141,7 +111,6 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 												mod);
 
 	Function::arg_iterator args_i = process_oparray->arg_begin();
-	args_i++; // dummy
 	Value* op_array_ref = args_i;
 	Value* tsrlm_ref = NULL;
 #ifdef ZTS
@@ -151,7 +120,6 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 	/* Create the init, (pre_)op_code, and return blocks */
 	BasicBlock* entry = BasicBlock::Create(context, "entry", process_oparray);
 	BasicBlock* init = BasicBlock::Create(context, "init", process_oparray);
-	BasicBlock* vm_enter = BasicBlock::Create(context, "vm_enter", process_oparray);
 	BasicBlock* pre_vm_return_block = BasicBlock::Create(context, "pre_vm_return", process_oparray);
 	BasicBlock* invalid_reposition_block = BasicBlock::Create(context, "invalid_reposition", process_oparray);
 	BasicBlock* ret = BasicBlock::Create(context, "ret", process_oparray);
@@ -196,19 +164,10 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 	Value * no_exception = builder.CreateICmpEQ(exception, zval_null, "no_exception");
 	builder.CreateCondBr(no_exception, init, ret);
 
-	/* Populate the init block */
-	Type * execute_stack_data_ty = mod->getTypeByName(STRUCT("execute_stack_data"));
-	if (!execute_stack_data_ty) {
-		zend_error_noreturn(E_ERROR, "phpllvm: unable to get type for struct _execute_stack_data");
-	}
 	builder.SetInsertPoint(init);
+	Type *execute_stack_data_ty = mod->getTypeByName(STRUCT("execute_stack_data"));
 	Value *stack_data = builder.CreateAlloca(execute_stack_data_ty, NULL, "stack_data");
 	CREATE_TSRMLS_CALL2(init_executor, stack_data, op_array_ref);
-
-	builder.CreateBr(vm_enter);
-
-	/* Populate the vm_enter block */
-	builder.SetInsertPoint(vm_enter);
 	CREATE_TSRMLS_CALL(create_execute_data, stack_data);
 
 	// Cache the execute_data pointer in a local value
@@ -223,8 +182,7 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 
 	/* Populate the invalid reposition block */
 	builder.SetInsertPoint(invalid_reposition_block);
-	CREATE_TSRMLS_CALL(handle_invalid_reposition, stack_data);
-	builder.CreateBr(ret);
+	builder.CreateUnreachable();
 
 	/* Populate the ret block */
 	builder.SetInsertPoint(ret);
@@ -240,8 +198,7 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 		if (op->opcode == ZEND_OP_DATA) {
 			// ZEND_OP_DATA only provides data for the previous opcode.
 			builder.CreateBr(op_blocks[i + 1]);
-			builder.SetInsertPoint(op_blocks_b[i]);
-			builder.CreateUnreachable();
+			op_blocks_b[i]->eraseFromParent();
 			continue;
 		}
 
@@ -318,9 +275,8 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 
 		} else {
 			// proceed to next op_code unless the handler returned a non-zero result
-			SwitchInst* switch_ref = builder.CreateSwitch(result, invalid_reposition_block, 3);
-			switch_ref->addCase(ConstantInt::get(int32ty, 0), op_blocks[i+1]);
-			switch_ref->addCase(ConstantInt::get(int32ty, 1), pre_vm_return_block);
+			Value *cond = builder.CreateICmpEQ(result, ConstantInt::get(int32ty, 0));
+			builder.CreateCondBr(cond, op_blocks[i+1], pre_vm_return_block);
 		}
 	}
 
@@ -333,14 +289,13 @@ Function* phpllvm::compile_op_array(zend_op_array *op_array, char* fn_name, Modu
 			execute_data, get_handler, tsrlm_ref);
 
 	// Take the normal action for return, enter or leave
-	SwitchInst* switch_ref = builder.CreateSwitch(result, invalid_reposition_block, 3);
-	switch_ref->addCase(ConstantInt::get(int32ty, 0), exception_continue);
-	switch_ref->addCase(ConstantInt::get(int32ty, 1), pre_vm_return_block);
-	
+	Value *cond = builder.CreateICmpEQ(result, ConstantInt::get(int32ty, 0));
+	builder.CreateCondBr(cond, exception_continue, pre_vm_return_block);
+
 	// On continue, we need to jump to the catch block indicated by execute_data->opline
 	builder.SetInsertPoint(exception_continue);
 	Value* catch_op_ref = builder.CreateCall(get_opline_number, stack_data, "current");
-	switch_ref = builder.CreateSwitch(catch_op_ref, invalid_reposition_block, op_array->last_try_catch);
+	SwitchInst *switch_ref = builder.CreateSwitch(catch_op_ref, invalid_reposition_block, op_array->last_try_catch);
 	for ( int i = 0; i < op_array->last_try_catch; i++ ) {
 		int catch_op = op_array->try_catch_array[i].catch_op;
 		switch_ref->addCase(ConstantInt::get(int32ty, catch_op), op_blocks[catch_op]);
@@ -355,14 +310,6 @@ static Function * get_function(Module * mod, const char * name TSRMLS_DC) {
 		zend_error_noreturn(E_ERROR, "phpllvm: unable to get template function %s", name);
 	}
 	return f;
-}
-
-static void add_padding(std::vector<Constant*> &v, unsigned bytes)
-{
-	LLVMContext & context = getGlobalContext();	
-	for (unsigned i = 0; i < bytes; ++i) {
-		v.push_back(ConstantInt::get(Type::getInt8Ty(context), 0));
-	}
 }
 
 static CallInst * make_handler_call(ExecutionEngine * engine, zend_op * op, 
@@ -388,13 +335,20 @@ static CallInst * make_handler_call(ExecutionEngine * engine, zend_op * op,
 		tsrlm_ref
 #endif
 	};
-	CallInst* result = CallInst::Create(
-			handler, ArrayRef<Value*>(handler_args), "execute_result", insert_at_end);
-	result->setCallingConv(handler->getCallingConv()); // PHP 5.3 uses fastcc
+	CallInst* result = CallInst::Create(handler, handler_args, "execute_result", insert_at_end);
+	result->setCallingConv(handler->getCallingConv());
 	return result;
 }
 
 #if 0
+static void add_padding(std::vector<Constant*> &v, unsigned bytes)
+{
+	LLVMContext & context = getGlobalContext();	
+	for (unsigned i = 0; i < bytes; ++i) {
+		v.push_back(UndefValue::get(Type::getInt8Ty(context), 0));
+	}
+}
+
 static GlobalVariable* dump_class_entry(zend_class_entry* class_entry, Module* mod) {
 	Type* class_entry_type = mod->getTypeByName(STRUCT("zend_class_entry"));
 
@@ -468,7 +422,6 @@ static GlobalVariable* dump_arg_info_array(zend_arg_info* info_array, int count,
 	return new GlobalVariable(initializer->getType(), true, GlobalValue::InternalLinkage, initializer, "arg_infos", mod);
 }
 
-#ifndef COMPILED_WITH_CLANG
 static Constant* copy_zval(zval* zval, Module* mod) {
 	// struct _zval_struct {
 	// 	/* Variable information */
@@ -491,11 +444,7 @@ static Constant* copy_zval(zval* zval, Module* mod) {
 	// } zvalue_value;
 	// %struct.zvalue_value = type { double }
 
-#ifdef COMPILED_WITH_CLANG
 	const StructType* zval_type = cast<const StructType>(mod->getTypeByName(STRUCT("zval_struct")));
-#else
-	const StructType* zval_type = cast<const StructType>(mod->getTypeByName(STRUCT("zval")));
-#endif
 	const StructType* zvalue_value_type = cast<const StructType>(mod->getTypeByName(UNION("zvalue_value")));
 	LLVMContext & context = getGlobalContext();	
 	const IntegerType* int8ty = Type::getInt8Ty(context);
@@ -513,7 +462,6 @@ static Constant* copy_zval(zval* zval, Module* mod) {
 
 	return ConstantStruct::get(zval_type, zval_members);
 }
-#endif
 
 static Constant* copy_znode(znode* node, Module* mod) {
 	// typedef struct _znode {
@@ -532,8 +480,7 @@ static Constant* copy_znode(znode* node, Module* mod) {
 	// 	} u;
 	// } znode;
 
-	// llvm-gcc: %struct.znode = type { i32, %struct.zend_declarables }
-	// clang:    %struct._znode = type <{ i32, %union.anon }>
+	// %struct._znode = type <{ i32, %union.anon }>
 
 	const StructType* znode_type = cast<const StructType>(mod->getTypeByName(STRUCT("znode")));
 	LLVMContext & context = getGlobalContext();	
@@ -543,7 +490,6 @@ static Constant* copy_znode(znode* node, Module* mod) {
 	std::vector<Constant*> znode_members;
 	znode_members.push_back(ConstantInt::get(int32ty, node->op_type));
 
-#ifdef COMPILED_WITH_CLANG
 	std::vector<Constant*> union_anon_members;
 
 	// %union.anon = type [16 x i8]
@@ -553,14 +499,6 @@ static Constant* copy_znode(znode* node, Module* mod) {
 	}
 
 	znode_members.push_back(ConstantArray::get(ArrayType::get(int8ty, 16), union_anon_members));
-#else
-	// %struct.zend_declarables = type { %struct.zval }
-	const StructType* declarables_type = cast<const StructType>(mod->getTypeByName(STRUCT("zend_declarables")));
-	std::vector<Constant*> declarables_members;
-	declarables_members.push_back(copy_zval(&node->u.constant, mod));
-
-	znode_members.push_back(ConstantStruct::get(declarables_type, declarables_members));
-#endif
 
 	return ConstantStruct::get(znode_type, znode_members);
 }
@@ -584,8 +522,7 @@ static GlobalVariable* dump_opcodes(zend_op* opcodes, int count, Module* mod, Ex
 		// 	uint lineno;
 		// 	zend_uchar opcode;
 		// };
-		// llvm-gcc: %struct.zend_op = type { i32 (%struct.zend_execute_data*)*, %struct.znode, %struct.znode, %struct.znode, i32, i32, i8 }
-		// clang:    %struct._zend_op = type <{ i32 (%struct._zend_execute_data*)*, %struct._znode, %struct._znode, %struct._znode, i32, i32, i8, i8, i8, i8 }>
+		// %struct._zend_op = type <{ i32 (%struct._zend_execute_data*)*, %struct._znode, %struct._znode, %struct._znode, i32, i32, i8, i8, i8, i8 }>
 
 
 		std::vector<Constant*> op_members;
@@ -598,9 +535,7 @@ static GlobalVariable* dump_opcodes(zend_op* opcodes, int count, Module* mod, Ex
 		op_members.push_back(ConstantInt::get(int32ty, opcodes[i].lineno));
 		op_members.push_back(ConstantInt::get(int8ty, opcodes[i].opcode));
 
-#ifdef COMPILED_WITH_CLANG
 		add_padding(op_members, 3);
-#endif
 
 		ops.push_back(ConstantStruct::get(op_type, op_members));
 	}

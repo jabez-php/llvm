@@ -2,7 +2,7 @@
    +----------------------------------------------------------------------+
    | PHP LLVM extension                                                   |
    +----------------------------------------------------------------------+
-   | Copyright (c) 2008 The PHP Group                                     |
+   | Copyright (c) 2008-2012 The PHP Group                                |
    +----------------------------------------------------------------------+
    | This source file is subject to version 3.01 of the PHP license,      |
    | that is bundled with this package in the file LICENSE, and is        |
@@ -23,22 +23,21 @@
 #include <map>
 #include <utility>
 
+#include <llvm/LLVMContext.h>
+#include <llvm/Module.h>
 #include <llvm/PassManager.h>
+#include <llvm/Analysis/Verifier.h>
+#include <llvm/Assembly/PrintModulePass.h>
+#include <llvm/Bitcode/ReaderWriter.h>
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
 #include <llvm/ExecutionEngine/GenericValue.h>
 #include <llvm/Support/MemoryBuffer.h>
-#include <llvm/Bitcode/ReaderWriter.h>
-#include <llvm/Analysis/Verifier.h>
-#include <llvm/Assembly/PrintModulePass.h>
-#include <llvm/Target/TargetData.h>
-#include <llvm/Target/TargetOptions.h>
-#include <llvm/Transforms/Scalar.h>
-#include <llvm/Transforms/IPO.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/system_error.h>
-#include <llvm/LLVMContext.h>
 #include <llvm/Support/TargetSelect.h>
-#include <llvm/Support/MutexGuard.h>
+#include <llvm/Target/TargetData.h>
+#include <llvm/Transforms/IPO.h>
+#include <llvm/Transforms/Scalar.h>
 
 // Including this header magically makes the JIT be linked in and register 
 // itself at startup.
@@ -68,9 +67,7 @@ static void optimize_function(Function* function) {
 }
 
 void phpllvm::save_module(const char* filename) {
-#ifdef DEBUG_PHPLLVM
 	verifyModule(*module, AbortProcessAction);
-#endif
 
 	std::string ErrorInfo;
 	raw_fd_ostream os(filename, ErrorInfo);
@@ -81,7 +78,7 @@ void phpllvm::save_module(const char* filename) {
 }
 
 void phpllvm::init_jit_engine(const char* filename) {
-    InitializeNativeTarget();
+	InitializeNativeTarget();
 
 	if (!filename) {
 		filename = "module_template.bc";
@@ -91,7 +88,7 @@ void phpllvm::init_jit_engine(const char* filename) {
 	OwningPtr<MemoryBuffer> buf;
 	error_code code;
 	std::string message;
-	LLVMContext & context = getGlobalContext();
+	LLVMContext &context = getGlobalContext();
 
 	code = MemoryBuffer::getFile(filename, buf);
 	if (code) {
@@ -104,10 +101,12 @@ void phpllvm::init_jit_engine(const char* filename) {
 
 	EngineBuilder builder(module);
 
+#if 0
 	// Disable frame pointer elimination
 	TargetOptions opts;
 	opts.NoFramePointerElim = true;
 	builder.setTargetOptions(opts);
+#endif
 
 	builder.setEngineKind(EngineKind::JIT);
 	builder.setErrorStr(&message);
@@ -164,12 +163,7 @@ void phpllvm::restore_executor() {
 
 void phpllvm::execute(zend_op_array *op_array TSRMLS_DC) {
 
-#if PHP_VERSION_ID >= 50400
-	if (EG(start_op))
-#else
-	if (op_array->start_op)
-#endif
-	{
+	if (EG(start_op)) {
 		// This does not appear to be reachable, ext/readline just gives us interactive
 		// op arrays in small compilable fragments, it doesn't append to the old one
 		php_error(E_WARNING, "phpllvm: cannot execute interactive code");
@@ -183,28 +177,19 @@ void phpllvm::execute(zend_op_array *op_array TSRMLS_DC) {
 	Function* function;
 
 	if (!op_array->filename || std::string("Command line code") == op_array->filename) {
-
 		/* Don't cache "Command line code". */
 		name = estrdup("command_line_code");
 		cache = false;
 		function = NULL;
 
 	} else {
-#if PHP_API_VERSION >= 20100412
-		int start = 0;
-#else
-		int start = (op_array->start_op)? op_array->start_op - op_array->opcodes : 0;
-#endif
-		
-		spprintf(&name, 0, "%s__c__%s__f__%s__s__%u",
+		spprintf(&name, 0, "%s__c__%s__f__%s__s",
 			(op_array->filename)? op_array->filename : "",
 			(op_array->scope)? op_array->scope->name : "",
-			(op_array->function_name)? op_array->function_name : "",
-			start);
+			(op_array->function_name)? op_array->function_name : "");
 
 		cache = true;
 		function = module->getFunction(name);
-
 	}
 
 	if (!function) {
@@ -226,22 +211,20 @@ void phpllvm::execute(zend_op_array *op_array TSRMLS_DC) {
 	std::vector<GenericValue> args;
 	GenericValue val;
 
-	// Pass a dummy integer argument so that we can hit a "common case" in JIT.cpp 
-	// and avoid code generation
-	args.push_back(val);
 	val.PointerVal = op_array;
 	args.push_back(val);
 
 #ifdef ZTS
+	// FIXME: this doesnt hit the fast case in LLVM's JIT
 	val.PointerVal = TSRMLS_C;
 	args.push_back(val);
 #endif
 
 	engine->runFunction(function, args);
 
-	if(!cache) {
+	if (!cache) {
 		engine->freeMachineCodeForFunction(function);
-		cast<Instruction>(function->use_begin().getUse().getUser())->eraseFromParent(); // delete the 'call' instruction
+		// FIXME: needed? cast<Instruction>(function->use_begin().getUse().getUser())->eraseFromParent(); // delete the 'call' instruction
 		function->eraseFromParent();
 	}
 }

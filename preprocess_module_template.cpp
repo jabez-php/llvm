@@ -2,7 +2,7 @@
    +----------------------------------------------------------------------+
    | PHP LLVM extension                                                   |
    +----------------------------------------------------------------------+
-   | Copyright (c) 2008 The PHP Group                                     |
+   | Copyright (c) 2008-2012 The PHP Group                                |
    +----------------------------------------------------------------------+
    | This source file is subject to version 3.01 of the PHP license,      |
    | that is bundled with this package in the file LICENSE, and is        |
@@ -17,16 +17,16 @@
    +----------------------------------------------------------------------+
 */
 
-#include <llvm/Module.h>
-#include <llvm/DerivedTypes.h>
-#include <llvm/Type.h>
-#include <llvm/Support/MemoryBuffer.h>
-#include <llvm/Bitcode/ReaderWriter.h>
-#include <llvm/Analysis/Verifier.h>
-#include <llvm/Assembly/PrintModulePass.h>
-#include <llvm/Support/system_error.h>
-#include <llvm/LLVMContext.h>
-#include <llvm/Support/raw_ostream.h>
+#include "llvm/LLVMContext.h"
+#include "llvm/Module.h"
+#include "llvm/Pass.h"
+#include "llvm/Analysis/Verifier.h"
+#include "llvm/Assembly/PrintModulePass.h"
+#include "llvm/Bitcode/ReaderWriter.h"
+#include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/system_error.h"
+#include "llvm/Transforms/IPO.h"
 
 #include <fstream>
 #include <stdlib.h>
@@ -53,7 +53,7 @@ int main(int argc, char **argv)
 	OwningPtr<MemoryBuffer> buf;
 	error_code code;
 	std::string message;
-	LLVMContext & context = getGlobalContext();
+	LLVMContext &context = getGlobalContext();
 
 	/* Read the module. */
 
@@ -82,6 +82,10 @@ int main(int argc, char **argv)
 			}
 		}
 
+		// FIXME: we do not need to strip debug info when we move to MCJIT
+		ModulePass *StripDebugPass = createStripSymbolsPass(true);
+		StripDebugPass->runOnModule(*mod);
+
 	} else /* if (pass == 1) */ {
 		// Preprocessing: set of minor hacks to the Zend code
 
@@ -90,10 +94,8 @@ int main(int argc, char **argv)
 			"executor_globals",
 			"compiler_globals",
 #endif
-			"default_exception_ce",
 			"empty_fcall_info",
 			"empty_fcall_info_cache",
-			"error_exception_ce",
 			"zend_compile_file",
 			"zend_compile_string",
 			"zend_execute",
@@ -105,7 +107,7 @@ int main(int argc, char **argv)
 		// transform global variables into an extern reference, so that the bitcode
 		// references the VM state and not its own vars
 		for (uint i = 0; i < sizeof(global_vars)/sizeof(*global_vars); ++i) {
-			GlobalVariable* GV = dynamic_cast<GlobalVariable*>(mod->getNamedGlobal(global_vars[i]));
+			GlobalVariable* GV = dyn_cast<GlobalVariable>(mod->getNamedGlobal(global_vars[i]));
 			if (!GV) continue; // some Zend versions might not have all the symbols
 			GV->setInitializer(NULL); // remove 'zeroinitializer'
 			GV->setLinkage(GlobalValue::ExternalLinkage);
@@ -115,11 +117,13 @@ int main(int argc, char **argv)
 		// alias zend_error_noreturn() to zend_error()
 		// this is needed because zend_error_noreturn() is defined in zend.c,
 		// which we don't currently compile to bitcode
+		// FIXME: ensure the callinst is noreturn
 		if (Function *aliasFn = mod->getFunction("zend_error_noreturn")) {
-			Function *aliasee = mod->getFunction("zend_error");
-			GlobalAlias *alias = new GlobalAlias(aliasee->getType(), Function::ExternalLinkage, "zend_error_noreturn", aliasee, mod);
+			Constant *aliasee = mod->getFunction("zend_error");
+			GlobalAlias *alias = new GlobalAlias(aliasee->getType(), Function::InternalLinkage, "zend_error_noreturn", aliasee, mod);
 			aliasFn->replaceAllUsesWith(alias);
-			alias->takeName(mod->getFunction("zend_error_noreturn"));
+			alias->takeName(aliasFn);
+			aliasFn->eraseFromParent();
 		}
 	}
 

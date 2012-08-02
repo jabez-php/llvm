@@ -2,7 +2,7 @@
    +----------------------------------------------------------------------+
    | PHP LLVM extension                                                   |
    +----------------------------------------------------------------------+
-   | Copyright (c) 2008 The PHP Group                                     |
+   | Copyright (c) 2008-2012 The PHP Group                                |
    +----------------------------------------------------------------------+
    | This source file is subject to version 3.01 of the PHP license,      |
    | that is bundled with this package in the file LICENSE, and is        |
@@ -49,8 +49,6 @@ void phpllvm_verify_opline(execute_stack_data *stack_data, int i);
 int phpllvm_get_opline_number(execute_stack_data *stack_data);
 
 opcode_handler_t phpllvm_get_opcode_handler(zend_op* op);
-
-void phpllvm_handle_invalid_reposition(execute_stack_data *stack_data TSRMLS_DC);
 
 #ifdef __cplusplus
 }

@@ -17,22 +17,15 @@ if test "$PHP_PHPLLVM" = "yes"; then
       if test "$PHP_LLVM_BINS" = "yes"; then
         AC_MSG_ERROR([You must specify a path when using --with-llvm])
       fi
-
       llvm_bins_path="$PHP_LLVM_BINS/";
   fi
   PHP_SUBST(llvm_bins_path)
 
-  AC_PATH_PROG(PROG_CLANG, clang,[], $PATH:$llvm_bins_path)
-  dnl give preference to clang over llvm-gcc
+  AC_PATH_PROG(PROG_CLANG, clang,[], $llvm_bins_path:$PATH)
   if test "$PROG_CLANG" != ""; then
     LLVM_CC=$PROG_CLANG
-    CXXFLAGS="$CXXFLAGS -DCOMPILED_WITH_CLANG"
   else
-    AC_PATH_PROG(PROG_LLVM_GCC, llvm-gcc,[], $PATH:$llvm_bins_path)
-    if test "$PROG_LLVM_GCC," = ""; then
-      AC_MSG_ERROR([Neither clang nor llvm-gcc were found])
-    fi
-    LLVM_CC=$PROG_LLVM_GCC
+    AC_MSG_ERROR([Clang was not found])
   fi
   PHP_SUBST(LLVM_CC)
 

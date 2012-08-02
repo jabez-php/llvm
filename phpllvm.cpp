@@ -2,7 +2,7 @@
    +----------------------------------------------------------------------+
    | PHP LLVM extension                                                   |
    +----------------------------------------------------------------------+
-   | Copyright (c) 2008 The PHP Group                                     |
+   | Copyright (c) 2008-2012 The PHP Group                                |
    +----------------------------------------------------------------------+
    | This source file is subject to version 3.01 of the PHP license,      |
    | that is bundled with this package in the file LICENSE, and is        |
@@ -52,14 +52,8 @@ PHP_INI_END()
 ZEND_GET_MODULE(phpllvm)
 #endif
 
-static void phpllvm_init_globals(zend_phpllvm_globals *phpllvm_globals)
-{
-}
-
 static PHP_MINIT_FUNCTION(phpllvm)
 {
-	ZEND_INIT_MODULE_GLOBALS(phpllvm, phpllvm_init_globals, NULL);
-
 	REGISTER_INI_ENTRIES();
 
 	init_jit_engine(NULL);
@@ -103,7 +97,7 @@ static PHP_MINFO_FUNCTION(phpllvm)
 	DISPLAY_INI_ENTRIES();
 }
 
-static zend_function_entry phpllvm_functions[] = {
+static const zend_function_entry phpllvm_functions[] = {
 	{NULL, NULL, NULL}
 };
 
