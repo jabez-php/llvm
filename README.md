@@ -1,6 +1,11 @@
 Package Information
-Summary	Zend bytecode to LLVM assembly compiler
-Maintainers	Nuno Lopes <nlopess@php.net> (lead) [details]
-Joonas Govenius (lead) [details]
-License	PHP License
-Description	Compiles Zend bytecode to LLVM assembly and then into optimized machine code.
+
+Summary:	Zend bytecode to LLVM assembly compiler
+Maintainers:
+* Nuno Lopes <nlopess@php.net> (lead) (http://pecl.php.net/user/nlopess)
+* Joonas Govenius (lead) (http://pecl.php.net/user/joonas)
+* Patrick Reilly (http://pecl.php.net/user/preilly)
+
+License: PHP License (http://www.php.net/license/3_01.txt)
+
+Description: Compiles Zend bytecode to LLVM assembly and then into optimized machine code.
